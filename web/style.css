@@ -370,7 +370,7 @@ h2,
 
 @media (min-width: 1400px) and (min-height: 600px) {
     .layout {
-        grid-template-columns: minmax(480px, 5fr) minmax(0, 7fr);
+        grid-template-columns: minmax(620px, 5fr) minmax(0, 7fr);
     }
 }
 
