@@ -263,16 +263,57 @@ select {
     margin-bottom: 10px;
 }
 
+/* Repères et légendes : rien à copier, et un double-clic ne doit pas les surligner. */
+.board,
+th,
+.rank,
+.badge,
+.duel-badge,
+.band,
+.round-title,
+.match-id,
+.match-state,
+.slot .seed,
+.elo-caption,
+.elo-window label,
+h2,
+.live,
+.title-course,
+.pages a,
+.icon,
+.picker-icon,
+.chip-remove,
+.bump-grid text {
+    -webkit-user-select: none;
+    user-select: none;
+}
+
 .scroll {
     overflow: auto;
     overscroll-behavior: contain;
-    scrollbar-width: thin;
-    scrollbar-color: var(--line) transparent;
+    scrollbar-width: none;
 }
 
-/* Une ligne coupée par le bas se lit comme "il y en a d'autres". */
-.scroll.more {
-    mask-image: linear-gradient(to bottom, #000 calc(100% - 1.5rem), transparent);
+.scroll::-webkit-scrollbar {
+    display: none;
+}
+
+/* Sans barre, une ligne coupée sous un dégradé gris dit qu'il y en a d'autres. */
+.scroll::after {
+    content: '';
+    display: block;
+    position: sticky;
+    bottom: 0;
+    height: 2.5rem;
+    margin-top: -2.5rem;
+    background: linear-gradient(transparent, color-mix(in srgb, var(--line) 70%, var(--surface)));
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+}
+
+.scroll.more::after {
+    opacity: 1;
 }
 
 /* Tout l'essentiel sur un écran : seuls le classement au-delà du 10e et les parties défilent. */
@@ -284,7 +325,7 @@ select {
 
     .layout {
         min-height: 0;
-        grid-template-columns: minmax(380px, 5fr) minmax(0, 7fr);
+        grid-template-columns: minmax(420px, 6fr) minmax(0, 7fr);
         grid-template-rows: auto auto minmax(9.5rem, 1fr);
         grid-template-areas:
             'ranking submit'
@@ -320,25 +361,16 @@ select {
         min-height: 0;
     }
 
-    /* Dix lignes et l'amorce de la onzième ; sur un écran trop bas, ce qui reste après les
-       parties récentes. */
+    /* Même hauteur quelle que soit la sélection : le sélecteur d'équipes en dessous ne bouge pas.
+       Sept lignes et la moitié de la huitième, qui annonce la suite. */
     .ranking-scroll {
-        max-height: min(calc(2rem + 10.5 * 2.25rem), calc(100dvh - 20rem));
-    }
-
-    .single-team .ranking {
-        max-height: 50dvh;
-        overflow: auto;
-    }
-
-    .single-team .ranking-scroll {
-        max-height: min(calc(2rem + 7.5 * 2.25rem), calc(50dvh - 8rem));
+        max-height: min(calc(2rem + 7.5 * 2.25rem), calc(100dvh - 20rem));
     }
 }
 
 @media (min-width: 1400px) and (min-height: 600px) {
     .layout {
-        grid-template-columns: minmax(440px, 4fr) minmax(0, 7fr);
+        grid-template-columns: minmax(480px, 5fr) minmax(0, 7fr);
     }
 }
 
@@ -387,7 +419,40 @@ tbody tr:last-child td {
     width: 100%;
     max-width: 0;
     overflow: hidden;
+}
+
+.team-line {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+/* Le nom cède d'abord la place, puis l'adversaire ; les autres badges restent entiers. */
+.team-name {
+    flex: 0 100 auto;
+    min-width: 6ch;
+    overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.team-line .badge {
+    flex: none;
+}
+
+tbody tr {
+    scroll-margin-block: 2rem 2.5rem;
+}
+
+tbody td {
+    transition: background-color 0.6s ease-out;
+}
+
+tr.opponent td {
+    background: color-mix(in srgb, var(--red) 10%, transparent);
+}
+
+tr.ping td {
+    background: color-mix(in srgb, var(--red) 22%, transparent);
 }
 
 .elo {
@@ -431,6 +496,42 @@ tbody tr:first-child .elo {
 .pace.warn {
     color: var(--red);
     font-weight: 700;
+}
+
+.ranking {
+    container: ranking / inline-size;
+}
+
+/* Selon la largeur du panneau, pas de la fenêtre : Dernière, V–D, moy., % V puis Elo s'effacent. */
+@container ranking (max-width: 560px) {
+    .last-col {
+        display: none;
+    }
+}
+
+@container ranking (max-width: 500px) {
+    .record {
+        display: none;
+    }
+}
+
+@container ranking (max-width: 440px) {
+    .pace {
+        display: none;
+    }
+}
+
+@container ranking (max-width: 390px) {
+    .pct {
+        display: none;
+    }
+}
+
+@container ranking (max-width: 330px) {
+    .elo,
+    th:nth-child(3) {
+        display: none;
+    }
 }
 
 .badge {
@@ -500,8 +601,33 @@ tbody tr:first-child .elo {
     border-radius: 999px;
     background: color-mix(in srgb, var(--red) 8%, transparent);
     color: var(--ink);
+    font: inherit;
     font-size: 0.75rem;
     white-space: nowrap;
+}
+
+.team-line .duel-badge {
+    flex: 0 1 auto;
+    min-width: 0;
+}
+
+.duel-name {
+    min-width: 2ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+button.duel-badge {
+    cursor: pointer;
+}
+
+button.duel-badge:hover {
+    background: color-mix(in srgb, var(--red) 16%, transparent);
+}
+
+button.duel-badge:focus-visible {
+    outline: 2px solid var(--red);
+    outline-offset: 1px;
 }
 
 .duel-badge.black {
@@ -938,6 +1064,7 @@ input[type='range'] {
     align-items: center;
     justify-content: space-between;
     gap: 6px 12px;
+    min-height: 1.5rem;
     margin-bottom: 10px;
 }
 
@@ -1739,11 +1866,15 @@ p.graph-link:hover {
 @media (max-width: 959px),
 (max-height: 599px) {
     .ranking-scroll {
-        max-height: calc(2rem + 10.5 * 2.25rem);
+        max-height: calc(2rem + 7.5 * 2.25rem);
     }
 
     .games-list {
         max-height: 60vh;
+    }
+
+    .scroll {
+        overscroll-behavior: auto;
     }
 
     .replay {
@@ -1805,12 +1936,6 @@ p.graph-link:hover {
         grid-template-columns: minmax(0, 1fr);
     }
 
-    .last-col,
-    .pct,
-    .pace {
-        display: none;
-    }
-
     .game {
         grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
         row-gap: 2px;
@@ -1850,5 +1975,10 @@ p.graph-link:hover {
 @media (prefers-reduced-motion: reduce) {
     .live.pulse {
         animation: none;
+    }
+
+    .scroll::after,
+    tbody td {
+        transition: none;
     }
 }

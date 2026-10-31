@@ -177,6 +177,29 @@ const scrollAreas = [document.querySelector('.ranking-scroll'), $('games')]
 for (const node of scrollAreas) node.addEventListener('scroll', () => markOverflow(node), { passive: true })
 addEventListener('resize', () => scrollAreas.forEach(markOverflow))
 
+// Écouteurs sur le tbody : ses lignes sont reconstruites à chaque rafraîchissement.
+const rankingBody = $('ranking').querySelector('tbody')
+const opponentRow = (event) => {
+    const team = event.target.closest?.('[data-opponent]')?.dataset.opponent
+    return team && [...rankingBody.rows].find((row) => row.dataset.team === team)
+}
+const clearOpponent = () => rankingBody.querySelector('.opponent')?.classList.remove('opponent')
+const showOpponent = (event) => {
+    clearOpponent()
+    opponentRow(event)?.classList.add('opponent')
+}
+rankingBody.addEventListener('pointerover', showOpponent)
+rankingBody.addEventListener('focusin', showOpponent)
+rankingBody.addEventListener('pointerout', clearOpponent)
+rankingBody.addEventListener('focusout', clearOpponent)
+rankingBody.addEventListener('click', (event) => {
+    const row = opponentRow(event)
+    if (!row) return
+    row.scrollIntoView({ block: 'nearest' })
+    row.classList.add('ping')
+    setTimeout(() => row.classList.remove('ping'), 1200)
+})
+
 function renderSessions(first) {
     fillSelect($('session'), summary.sessions, first ? (SESSION ?? summary.sessions[0]) : $('session').value)
     // Ancien lien ?team= : réécrit en ?teams=.
@@ -195,7 +218,6 @@ function render() {
     const key = session === GLOBAL ? 'all' : 'session'
     const rating = (side) => ratingOf(side, key, verified)
     const teams = selectedTeams()
-    document.querySelector('.layout').classList.toggle('single-team', teams.length === 1)
     const rows = new Map([...followed].map(([team, state]) => [team, state.rows]))
     const list = teams.length
         ? gamesOf(rows, teams, { mode: matchMode(), session }).filter((g) => (!verified || !isRemote(g)) && !outside(g, session))
@@ -233,13 +255,17 @@ function duelIcon() {
     return svg
 }
 
-function duelBadge(opponent, color) {
-    return el(
-        'span',
-        { class: `duel-badge ${color}`, title: `Partie en cours contre ${opponent}` },
-        duelIcon(),
-        opponent
-    )
+// Un bouton quand l'adversaire a une ligne à montrer ; sinon (autre session) un simple repère.
+function duelBadge(opponent, color, listed) {
+    const title = `Partie en cours contre ${opponent}`
+    const body = [duelIcon(), el('span', { class: 'duel-name' }, opponent)]
+    return listed
+        ? el(
+            'button',
+            { class: `duel-badge ${color}`, type: 'button', title, 'aria-label': `${title}, voir sa ligne`, 'data-opponent': opponent },
+            ...body
+        )
+        : el('span', { class: `duel-badge ${color}`, title }, ...body)
 }
 
 // "v3" pour le build de `player`, vide sans build.
@@ -302,23 +328,25 @@ function renderRanking(ratings) {
     }
     $('bot-note').hidden = !ratings.some(isBot)
     $('remote-note').hidden = !ratings.some((r) => r.remote)
+    const listed = new Set(ratings.map((r) => r.team))
     $('ranking')
         .querySelector('tbody')
         .replaceChildren(
             ...ratings.map((r, i) => {
                 const bot = isBot(r)
-                const team = el('td', { class: 'team', title: r.team }, r.team)
+                const line = el('div', { class: 'team-line' }, el('span', { class: 'team-name' }, r.team))
+                const team = el('td', { class: 'team', title: r.team }, line)
                 const v = version(r)
-                if (v) team.append(el('span', { class: 'badge', title: `Build ${r.build}` }, v))
-                if (r.remote) team.append(remoteBadge())
-                if (bot) team.append(el('span', { class: 'badge', title: 'Adversaire de référence' }, 'bot'))
-                if (r.anchor) team.append(el('span', { class: 'badge anchor' }, 'ancre'))
-                if (r.provisional) team.append(el('span', { class: 'badge' }, 'provisoire'))
+                if (v) line.append(el('span', { class: 'badge', title: `Build ${r.build}` }, v))
+                if (r.remote) line.append(remoteBadge())
+                if (bot) line.append(el('span', { class: 'badge', title: 'Adversaire de référence' }, 'bot'))
+                if (r.anchor) line.append(el('span', { class: 'badge anchor' }, 'ancre'))
+                if (r.provisional) line.append(el('span', { class: 'badge' }, 'provisoire'))
                 const duel = duels.get(r.team)
-                if (duel) team.append(duelBadge(duel.opponent, duel.color))
+                if (duel) line.append(duelBadge(duel.opponent, duel.color, listed.has(duel.opponent)))
                 return el(
                     'tr',
-                    bot ? { class: 'bot' } : {},
+                    bot ? { class: 'bot', 'data-team': r.team } : { 'data-team': r.team },
                     el('td', { class: 'num rank' }, String(i + 1)),
                     team,
                     el('td', { class: 'num elo' }, String(Math.round(r.rating))),
