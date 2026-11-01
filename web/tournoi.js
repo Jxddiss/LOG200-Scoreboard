@@ -2,6 +2,7 @@
 // aperçu du prochain (data/tournament-preview.json). ?tournament= suit le tableau affiché.
 
 import { $, DATA, el, fullFormat, linkPages, pageUrl, params, pulse, REFRESH_MS, setParam, timeFormat } from './common.js'
+import { fetchModel, percent, winProbability } from './predict.js'
 
 const SIDES = [
     ['winners', 'Tableau principal'],
@@ -17,6 +18,7 @@ let view = null
 let viewText = null
 let previewText = null
 let builds = new Map()
+let model = null
 
 async function json(url) {
     const res = await fetch(url, { cache: 'no-store' })
@@ -28,6 +30,7 @@ async function refresh() {
     try {
         index = await json(`${DATA}/tournaments/index.json`).catch(() => ({ next: null, tournaments: [] }))
         builds = new Map(Object.entries((await json(`${DATA}/summary.json`).catch(() => ({}))).builds ?? {}))
+        model = await fetchModel(DATA)
         previewText = await fetch(`${DATA}/tournament-preview.json`, { cache: 'no-store' })
             .then((res) => (res.ok ? res.text() : null))
             .catch(() => null)
@@ -173,15 +176,23 @@ function card(m, seeds, byId) {
         return from.winner ? `vainqueur ${from.winner}` : from.loser ? `perdant ${from.loser}` : 'à venir'
     }
     const scored = m.games.length > 0 || m.head_start.some(Boolean)
+    const open = m.teams[0] && m.teams[1] && m.status !== 'done' && !scored
     const slot = (i) => {
         const team = m.teams[i]
         const state = !team ? ' tbd' : bye ? '' : m.winner === team ? ' win' : m.winner ? ' lose' : ''
+        const chance = open ? winProbability(model, team, m.teams[1 - i]) : null
+        const score = el('span', { class: 'score' }, team && scored ? String(m.score[i]) : '')
+        if (chance !== null) {
+            score.classList.add('prob')
+            score.textContent = String(percent(chance))
+            score.title = `${percent(chance)} % de chances de gagner une manche, selon le modèle (couleurs moyennées)`
+        }
         return el(
             'div',
             { class: `slot${state}` },
             el('span', { class: 'seed' }, team ? String(seeds.get(team)) : ''),
             el('span', { class: 'name', title: team ? describe(team) : '' }, team ?? awaiting(m.from[i])),
-            el('span', { class: 'score' }, team && scored ? String(m.score[i]) : '')
+            score
         )
     }
     const label = [m.id, m.best_of === 5 ? 'meilleur de 5, le vainqueur du principal part à 1–0' : `meilleur de ${m.best_of}`]

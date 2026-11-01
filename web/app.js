@@ -28,6 +28,7 @@ import {
 } from './common.js'
 import { BETWEEN, gamesOf, isRemote, ratingOf, record, since, versionStarts } from './elo.js'
 import { createPicker } from './picker.js'
+import { fetchModel, percent, winProbability } from './predict.js'
 import { BLACK, DESTROYED, positions, RED, SIZE, squareName } from './replay.js'
 
 const RECENT_GAMES = 50
@@ -68,6 +69,8 @@ let summary = null
 let summaryText = null
 // Parties en cours, d'après live.json.
 let running = []
+// Modèle de probabilité de model.json, `null` s'il n'est pas publié.
+let model = null
 // Aucune équipe choisie : les dernières parties de toutes les équipes.
 let chosen = (params.get('teams') ?? params.get('team') ?? '').split(',').filter(Boolean)
 // Équipe choisie vers l'état de `tail` de teams/<équipe>.jsonl.
@@ -114,6 +117,7 @@ async function refresh() {
         }
         changed = (await follow()) || changed
         running = await fetchRunning().catch(() => [])
+        model = await fetchModel(DATA)
         if (first && GAME) openLinked().catch(() => (replay.pinned = false))
         render()
         if (changed && !first) pulse()
@@ -256,9 +260,11 @@ function duelIcon() {
 }
 
 // Un bouton quand l'adversaire a une ligne à montrer ; sinon (autre session) un simple repère.
-function duelBadge(opponent, color, listed) {
-    const title = `Partie en cours contre ${opponent}`
+function duelBadge(opponent, color, listed, chance) {
+    const odds = chance === null ? '' : `, ${percent(chance)} % de chances de gagner selon le modèle`
+    const title = `Partie en cours contre ${opponent}${odds}`
     const body = [duelIcon(), el('span', { class: 'duel-name' }, opponent)]
+    if (chance !== null) body.push(el('span', { class: 'duel-prob' }, `${percent(chance)} %`))
     return listed
         ? el(
             'button',
@@ -323,8 +329,8 @@ function renderRanking(ratings) {
     const isBot = (r) => !r.build
     const duels = new Map()
     for (const g of running) {
-        if (!duels.has(g.red)) duels.set(g.red, { opponent: g.black, color: 'red' })
-        if (!duels.has(g.black)) duels.set(g.black, { opponent: g.red, color: 'black' })
+        if (!duels.has(g.red)) duels.set(g.red, { opponent: g.black, color: 'red', chance: winProbability(model, g.red, g.black, 'red') })
+        if (!duels.has(g.black)) duels.set(g.black, { opponent: g.red, color: 'black', chance: winProbability(model, g.black, g.red, 'black') })
     }
     $('bot-note').hidden = !ratings.some(isBot)
     $('remote-note').hidden = !ratings.some((r) => r.remote)
@@ -343,7 +349,7 @@ function renderRanking(ratings) {
                 if (r.anchor) line.append(el('span', { class: 'badge anchor' }, 'ancre'))
                 if (r.provisional) line.append(el('span', { class: 'badge' }, 'provisoire'))
                 const duel = duels.get(r.team)
-                if (duel) line.append(duelBadge(duel.opponent, duel.color, listed.has(duel.opponent)))
+                if (duel) line.append(duelBadge(duel.opponent, duel.color, listed.has(duel.opponent), duel.chance))
                 return el(
                     'tr',
                     bot ? { class: 'bot', 'data-team': r.team } : { 'data-team': r.team },

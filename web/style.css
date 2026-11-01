@@ -617,6 +617,11 @@ tbody tr:first-child .elo {
     text-overflow: ellipsis;
 }
 
+.duel-prob {
+    flex: none;
+    color: var(--muted);
+}
+
 button.duel-badge {
     cursor: pointer;
 }
@@ -1831,6 +1836,13 @@ p.graph-link:hover {
     place-items: center;
     background: var(--tile);
     font-weight: 700;
+}
+
+.slot .score.prob {
+    background: transparent;
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-weight: 400;
 }
 
 .slot.win .name {

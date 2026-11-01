@@ -19,7 +19,7 @@ Format annoncé par l'enseignant : double élimination, avec un premier tour for
 
 - Bots niveau-N au tableau (aucun, même pour compléter la grille).
 - Équipes distantes au tableau.
-- Matrice de face-à-face, paris, prédictions.
+- Matrice de face-à-face, paris. La probabilité par manche des matchs à venir (`model.json`, voir [spec-prediction-victoire.md](spec-prediction-victoire.md)) s'affiche sur le tableau : c'est la seule prédiction.
 - Endpoint HTTP d'administration.
 
 ## Format du tableau

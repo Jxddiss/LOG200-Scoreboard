@@ -14,6 +14,7 @@ use isolation::board::{ByColor, Color};
 use isolation::record::{GameRecord, Player, Reason, TournamentGame};
 
 use crate::journal::append_jsonl;
+use crate::model::Model;
 
 pub const START: f64 = 1500.0;
 const K_PROVISIONAL: f64 = 40.0;
@@ -397,6 +398,7 @@ pub struct Standings {
     verified: Scopes,
     any_remote: bool,
     builds: BTreeMap<String, Vec<String>>,
+    model: Model,
 }
 
 impl Standings {
@@ -407,6 +409,7 @@ impl Standings {
             verified: Scopes::default(),
             any_remote: false,
             builds: BTreeMap::new(),
+            model: Model::new(dir),
         }
     }
 
@@ -441,6 +444,7 @@ impl Standings {
         }
         timeline.flush()?;
         standings.write_summary()?;
+        standings.model.publish()?;
         Ok(standings)
     }
 
@@ -468,10 +472,15 @@ impl Standings {
             }
         }
         append_jsonl(&self.dir.join("timeline.jsonl"), &row.tick())?;
-        self.write_summary()
+        self.write_summary()?;
+        self.model.publish_if_due()
     }
 
     fn play(&mut self, game: &GameRecord, at: Range<u64>) -> Row {
+        self.model.add(
+            game,
+            expected(self.rating(&game.red.team), self.rating(&game.black.team)),
+        );
         for player in [&game.red, &game.black] {
             if let Some(build) = &player.build {
                 let list = self.builds.entry(player.team.clone()).or_default();

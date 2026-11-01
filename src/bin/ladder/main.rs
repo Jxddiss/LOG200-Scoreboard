@@ -6,6 +6,7 @@ mod arena;
 mod config;
 mod journal;
 mod live;
+mod model;
 mod remote;
 mod schedule;
 mod standings;
