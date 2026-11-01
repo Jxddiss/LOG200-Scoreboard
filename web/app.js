@@ -1,6 +1,6 @@
 // Page du ladder : classement et dernières parties de summary.json, parties des équipes choisies
 // dans teams/, replay lu partie par partie dans games.jsonl.
-// ?session=, ?teams=, ?match=, ?window=, ?verified= et ?game= suivent les choix de la page : l'adresse
+// ?session=, ?teams=, ?match=, ?window=, ?verified=, ?pace=, ?record= et ?game= suivent les choix de la page : l'adresse
 // se partage telle quelle. ?team= des anciens liens vaut ?teams= avec cette seule équipe.
 
 import {
@@ -41,8 +41,14 @@ const PACE_STATS = {
     p50: ['méd.', 'Temps médian par coup'],
     p95: ['p95', '95e centile du temps par coup'],
     p99: ['p99', '99e centile du temps par coup'],
+    max: ['max', 'Temps maximal par coup'],
 }
 let paceStat = params.get('pace') in PACE_STATS ? params.get('pace') : 'p95'
+const RECORD_STATS = {
+    all: ['V–D', 'Victoires et défaites, toutes versions'],
+    build: ['V–D v.', 'Victoires et défaites, version actuelle'],
+}
+let recordStat = params.get('record') in RECORD_STATS ? params.get('record') : 'all'
 const REMOTE_TITLE =
     "Joue depuis la machine de l'équipe : code non vérifié, sans limite de coeurs ni de mémoire, latence réseau comptée"
 const SESSION = params.get('session')
@@ -227,6 +233,7 @@ function render() {
         ? gamesOf(rows, teams, { mode: matchMode(), session }).filter((g) => (!verified || !isRemote(g)) && !outside(g, session))
         : scope.recent
     renderPaceHeader()
+    renderRecordHeader()
     renderRanking(scope.ratings)
     picker.render(teams)
     renderDuel(teams, scope.ratings, rows, session, verified)
@@ -293,6 +300,13 @@ function paceCell(pace) {
     return el('td', { class: `num pace${warn}`, title }, `${pace[paceStat]} ms`)
 }
 
+function recordCell(r, v) {
+    const all = `${r.wins}–${r.losses}`
+    const build = `${r.build_wins}–${r.build_games - r.build_wins}`
+    const title = `Toutes versions ${all}, ${v || 'version actuelle'} ${build}`
+    return el('td', { class: 'num record', title }, recordStat === 'build' ? build : all)
+}
+
 function renderPaceHeader() {
     const [label, title] = PACE_STATS[paceStat]
     const button = $('pace-stat')
@@ -304,6 +318,19 @@ function nextPaceStat() {
     const stats = Object.keys(PACE_STATS)
     paceStat = stats[(stats.indexOf(paceStat) + 1) % stats.length]
     setParam('pace', paceStat === 'p95' ? null : paceStat)
+    render()
+}
+
+function renderRecordHeader() {
+    const [label, title] = RECORD_STATS[recordStat]
+    const button = $('record-stat')
+    button.textContent = label
+    button.title = `${title}. Cliquer pour changer.`
+}
+
+function nextRecordStat() {
+    recordStat = recordStat === 'all' ? 'build' : 'all'
+    setParam('record', recordStat === 'all' ? null : recordStat)
     render()
 }
 
@@ -356,7 +383,7 @@ function renderRanking(ratings) {
                     el('td', { class: 'num rank' }, String(i + 1)),
                     team,
                     el('td', { class: 'num elo' }, String(Math.round(r.rating))),
-                    el('td', { class: 'num record' }, `${r.wins}–${r.losses}`),
+                    recordCell(r, v),
                     el(
                         'td',
                         {
@@ -691,6 +718,7 @@ $('match').addEventListener('change', (e) => {
 })
 $('share').addEventListener('click', share)
 $('pace-stat').addEventListener('click', nextPaceStat)
+$('record-stat').addEventListener('click', nextRecordStat)
 for (const input of document.querySelectorAll('#elo-window input'))
     input.checked = input.value === (WINDOW in WINDOWS ? WINDOW : GLOBAL)
 $('elo-window').addEventListener('change', (e) => {
