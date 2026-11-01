@@ -1,9 +1,6 @@
 ---
 name: Pages
 
-# Publie web/ sur GitHub Pages a chaque push sur main qui touche la page : pas de tag, pas de
-# redemarrage du ladder. La page lit les donnees et l'API sur le serveur de la variable de depot
-# SCOREBOARD_URL (ex. https://ladder.example.com, sans / final).
 on:
   push:
     branches:
@@ -51,13 +48,13 @@ jobs:
           done
 
       - name: Configure Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       - name: Upload page
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: web
 
       - name: Deploy
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
