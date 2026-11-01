@@ -50,7 +50,6 @@ COPY --from=binaries /artifacts/isolation-ladder /artifacts/isolation-check /usr
 COPY sandbox/Dockerfile sandbox/referee-entry.sh sandbox/player-entry.sh /opt/sandbox-image/
 COPY --from=binaries /artifacts/isolation-referee /artifacts/isolation-bot /opt/sandbox-image/
 COPY sandbox/run-referee.sh sandbox/run-player.sh sandbox/cleanup.sh /srv/sandbox/
-COPY web /opt/web
 COPY deploy/ladder-entrypoint.sh /usr/local/bin/
 
 # Les chemins relatifs de ladder.toml (data/, jars/, sandbox/) partent d'ici.

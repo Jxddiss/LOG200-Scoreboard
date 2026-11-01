@@ -5,3 +5,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/ladder.Dockerfile
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/web.Dockerfile

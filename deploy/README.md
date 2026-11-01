@@ -13,7 +13,8 @@ Le ladder et sa page tournent avec un `docker compose up -d`. Chaque jar joue da
 
 1. Télécharger `isolation-scoreboard-deploy.zip` depuis la [dernière release](https://github.com/VianAtETS/LOG200-Scoreboard/releases/latest) et l'extraire.
 2. Créer la config : `cp ladder.example.toml ladder.toml`, puis régler au moins la session et le temps par coup.
-3. Lancer `docker compose up -d`. La page est sur `http://<machine>:8080/` (autre port : `WEB_PORT=80 docker compose up -d`).
+3. Lancer `docker compose up -d` : le ladder, l'API et les données sur `http://<machine>:8080/` (autre port : `WEB_PORT=80 docker compose up -d`).
+4. La page : sur GitHub Pages (section plus bas), ou sur ce serveur avec `COMPOSE_PROFILES=web docker compose up -d`, à `http://<machine>:8080/`.
 
 ## Inscrire les équipes
 
@@ -36,6 +37,7 @@ Pour que chaque push sur `main` soumette le jar, ajouter [`templates/ladder.yml`
 | Retirer une équipe | supprimer sa ligne dans `jars/teams.toml` et son dossier `jars/<équipe>/` |
 | Changer le temps par coup | `time_ms` dans `ladder.toml`, puis `docker compose restart ladder` ; les bots `niveau-N` suivent le temps annoncé |
 | Mettre à jour | `docker compose pull && docker compose up -d` |
+| Mettre à jour la page seule (profil `web`) | `docker compose pull web && docker compose up -d web` : le ladder continue |
 | Fixer une version | `SCOREBOARD_TAG=v0.2.0 docker compose up -d` |
 | Arrêter | `docker compose down` (les parties restent dans `data/`) |
 | Arrêter tout de suite | `docker compose down -t 0` : la partie en cours est perdue (rejouée si c'est un match de tournoi) |
@@ -67,7 +69,7 @@ Attention à `/api/submit` : Cloudflare coupe une requête sans réponse après 
 
 ## Équipes distantes (optionnel)
 
-Une équipe peut jouer sans téléverser son jar : il tourne sur sa machine, et `isolation-remote` relaie ses coups par une WebSocket sur `/api/remote` (voir "Jouer à distance" dans `docs/formats.md`). Pour l'ouvrir, décommenter la section `[remote]` de `ladder.toml`, puis `docker compose restart ladder`. Le `Caddyfile` relaie déjà `/api/remote` ; rien n'est exposé de plus que le port de la page.
+Une équipe peut jouer sans téléverser son jar : il tourne sur sa machine, et `isolation-remote` relaie ses coups par une WebSocket sur `/api/remote` (voir "Jouer à distance" dans `docs/formats.md`). Pour l'ouvrir, décommenter la section `[remote]` de `ladder.toml`, puis `docker compose restart ladder`. Le `Caddyfile` relaie déjà `/api/remote` ; rien n'est exposé de plus que le port 8080.
 
 L'équipe utilise son token habituel et l'adresse de la page : `isolation-remote --url https://ladder.example.com -- java -jar Client-eq07.jar`. Ses parties portent le badge "distant", et la case "Vérifiées seulement" de la page les retire du classement.
 
@@ -77,12 +79,22 @@ L'équipe utilise son token habituel et l'adresse de la page : `isolation-remote
 - La latence compte dans le temps par coup de l'équipe. Comme pour `LADDER_URL`, un nom d'hôte non proxifié évite le détour par Cloudflare.
 - `docker compose logs ladder | grep distant` montre les connexions. Le diagnostic du relais de chaque partie est dans `data/logs/`.
 
-## Page sur GitHub Pages (optionnel)
+## Page sur GitHub Pages
 
-La page reste servie par ce compose, mais elle peut aussi être publiée sur GitHub Pages : une modification de `web/` est alors en ligne à chaque push sur `main`, sans tag ni redémarrage du ladder. Elle lit toujours les parties et l'API sur ce serveur, qui doit donc être en HTTPS (section précédente).
+Au lieu du profil `web`, la page peut être publiée sur GitHub Pages : une modification de `web/` est alors en ligne à chaque push sur `main`, sans tag. Elle lit les parties et l'API sur ce serveur, qui doit donc être en HTTPS (section "Nom de domaine et HTTPS").
 
 1. Dans le dépôt GitHub, Settings > Pages : source "GitHub Actions".
 2. Settings > Secrets and variables > Actions > Variables : créer `SCOREBOARD_URL` avec l'adresse du serveur, par exemple `https://ladder.example.com` (sans `/` final).
 3. Lancer le workflow `Pages` (onglet Actions, "Run workflow") ou pousser une modification de `web/`.
 
 Le serveur accepte déjà les requêtes venant d'un autre site (en-têtes CORS du `Caddyfile`) : rien à changer de ce côté, hormis être à jour.
+
+## Tester la page en local
+
+L'image de la page tourne seule et lit n'importe quel serveur en HTTPS :
+
+```sh
+docker run --rm -p 8000:80 -e SCOREBOARD_SERVER=https://ladder.example.com ghcr.io/vianatets/log200-scoreboard-web
+```
+
+Puis ouvrir `http://localhost:8000/web/`.

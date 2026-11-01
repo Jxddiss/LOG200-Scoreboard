@@ -1,6 +1,7 @@
 # Ladder Isolation. Dans ce dossier : ladder.toml, jars/ et data/ (voir README.md), puis
-#   docker compose up -d
-# La page est servie en HTTP sur le port 8080 ; un reverse proxy peut se placer devant.
+#   docker compose up -d                       # ladder et API ; page sur GitHub Pages
+#   COMPOSE_PROFILES=web docker compose up -d  # avec la page sur ce serveur
+# Tout est servi en HTTP sur le port 8080 ; un reverse proxy peut se placer devant.
 name: isolation-scoreboard
 
 services:
@@ -15,19 +16,21 @@ services:
       - ./ladder.toml:/srv/ladder.toml:ro
       - ./jars:/srv/jars
       - ./data:/srv/data
-      - site:/srv/site
       - docker:/var/lib/docker
 
-  web:
+  gateway:
     image: caddy:2.11.7-alpine
     restart: unless-stopped
     ports:
       - "${WEB_PORT:-8080}:80"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - site:/srv/web:ro
       - ./data:/srv/data:ro
 
+  web:
+    image: ghcr.io/vianatets/log200-scoreboard-web:${SCOREBOARD_TAG:-latest}
+    profiles: [web]
+    restart: unless-stopped
+
 volumes:
-  site:
   docker:

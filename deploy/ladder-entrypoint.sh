@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Demarre le Docker interne, (re)construit l'image des bacs a sable, publie la page pour le service
-# web, puis lance le ladder. Les arguments sont passes au ladder (ex. --rounds 10).
+# Demarre le Docker interne, (re)construit l'image des bacs a sable, puis lance le ladder. Les
+# arguments sont passes au ladder (ex. --rounds 10).
 set -euo pipefail
 
 # Socket local seulement : ni TLS ni port TCP pour le Docker interne.
@@ -19,8 +19,5 @@ fi
 # l'image -jar, sans nos binaires.
 docker build -q -t isolation-sandbox /opt/sandbox-image > /dev/null
 docker build -q -t isolation-sandbox-jar --target jar /opt/sandbox-image > /dev/null
-
-mkdir -p /srv/site
-cp -r /opt/web/. /srv/site/
 
 exec isolation-ladder /srv/ladder.toml "$@"

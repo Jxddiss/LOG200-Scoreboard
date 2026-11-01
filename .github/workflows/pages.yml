@@ -45,7 +45,7 @@ jobs:
             echo "::error::Variable de depot SCOREBOARD_URL absente ou invalide (attendu : https://domaine, sans / final)"
             exit 1
           fi
-          for page in web/index.html web/graphe.html; do
+          for page in web/*.html; do
             sed -i "s|<meta name=\"scoreboard-server\" content=\"\"|<meta name=\"scoreboard-server\" content=\"$SERVER\"|" "$page"
             grep -q "content=\"$SERVER\"" "$page"
           done
