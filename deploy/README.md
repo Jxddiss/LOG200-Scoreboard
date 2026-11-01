@@ -38,6 +38,9 @@ Pour que chaque push sur `main` soumette le jar, ajouter [`templates/ladder.yml`
 | Mettre à jour | `docker compose pull && docker compose up -d` |
 | Fixer une version | `SCOREBOARD_TAG=v0.2.0 docker compose up -d` |
 | Arrêter | `docker compose down` (les parties restent dans `data/`) |
+| Arrêter tout de suite | `docker compose down -t 0` : la partie en cours est perdue (rejouée si c'est un match de tournoi) |
+
+Redémarrer, mettre à jour ou arrêter n'interrompt aucune partie : le ladder n'en lance plus, finit celles en cours (quelques minutes, 15 au plus), puis s'arrête. Pendant ce temps, une nouvelle soumission reçoit un 503.
 | Sauvegarder | copier `data/games.jsonl` |
 
 Les journaux des joueurs vont dans `data/logs/`, les jars et les tokens dans `jars/`. La page ne sert ni l'un ni l'autre.

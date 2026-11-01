@@ -9,6 +9,8 @@ services:
     # Docker interne + gVisor : chaque jar tourne dans un bac a sable sans reseau.
     privileged: true
     restart: unless-stopped
+    # SIGTERM : le ladder finit ses parties avant de sortir. Pire cas : une partie de tournoi, 14 min.
+    stop_grace_period: 15m
     volumes:
       - ./ladder.toml:/srv/ladder.toml:ro
       - ./jars:/srv/jars
