@@ -564,10 +564,6 @@ tbody tr:first-child .elo {
     margin-left: 0;
 }
 
-.running {
-    display: none;
-}
-
 .duel-icon {
     flex: none;
     width: 1em;

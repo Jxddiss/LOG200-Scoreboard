@@ -229,10 +229,10 @@ function drawLinks() {
         const paths = []
         for (const target of rounds.querySelectorAll('.match-wrap[data-from]')) {
             const to = target.querySelector('.match')?.getBoundingClientRect()
-            if (!to) continue
+            if (!to?.width) continue
             for (const id of target.dataset.from.split(',').filter(Boolean)) {
                 const from = rounds.querySelector(`[data-id="${id}"] .match`)?.getBoundingClientRect()
-                if (!from) continue
+                if (!from?.width) continue
                 const [ax, ay] = [from.right - box.left, from.top + from.height / 2 - box.top]
                 const [bx, by] = [to.left - box.left, to.top + to.height / 2 - box.top]
                 const mx = (ax + bx) / 2
