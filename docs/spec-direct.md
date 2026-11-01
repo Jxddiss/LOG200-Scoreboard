@@ -88,6 +88,7 @@ Le front se déploie sans le ladder (image `log200-scoreboard-web`, GitHub Pages
 
 - **`direct.html`** : un plateau par partie en cours. Chaque plateau montre les équipes, le contexte du tournoi (match, manche, score), la probabilité d'avant-partie, le temps du dernier coup et un compte à rebours. Une partie finie reste 30 s avec son résultat. Un clic ouvre le replay en mode direct.
 - **Replay** (`index.html?game=<id>`) : si la partie est annoncée dans `live.json`, il suit le dernier coup en direct. Une fois la partie finie, il garde la partie construite et ne relit `games.jsonl` qu'au rechargement, `games.jsonl` étant mis en cache 15 s.
+- **Équipe choisie, sans partie épinglée** : le replay montre la partie en cours la plus récente des équipes choisies (même filtre « Avec l'une » / « Entre elles » que la liste), sans écrire `?game=`. La WebSocket s'ouvre quand `live.json` montre une de leurs parties. Une fois la partie finie, il reste dessus jusqu'à la suivante, et ne revient jamais à une partie finie plus ancienne. Sans équipe choisie, il suit toujours la dernière partie finie.
 - **Liens** : les badges de duel (index) et les cartes « en cours » (tournoi) mènent à la partie quand `live.json` donne son `id`.
 - **Reconnexion** : délai exponentiel avec jitter. Une partie absente du nouveau snapshot est marquée « interrompue ».
 
@@ -147,6 +148,11 @@ Le front se déploie sans le ladder (image `log200-scoreboard-web`, GitHub Pages
 | D24 | Vue agrandie | Le clic dans `direct.html` ouvre le replay en mode direct | Évite une deuxième vue agrandie à maintenir | Interview | 2026-11-01 |
 | D25 | Versions front/back | `/api/live` v1 en ajouts seulement ; client tolérant ; « direct indisponible » si l'endpoint manque | Le front (image web, Pages) se déploie sans le ladder | Interview | 2026-11-01 |
 | D26 | Bots | Pas de direct pour une partie entre deux bots (`Team::is_bot`) | Sans intérêt pour les spectateurs | Interview | 2026-11-01 |
+| D27 | Déclencheur du replay en direct | `live.json` repère une partie d'une équipe choisie, puis une seule WebSocket est ouverte et gardée | Aucune connexion pour qui ne regarde rien en direct | Interview | 2026-11-01 |
+| D28 | Choix de la partie | Même filtre que la liste, la plus récente non finie | Cohérent avec le suivi de la dernière partie finie | Interview | 2026-11-01 |
+| D29 | Fin de la partie suivie | Reste affichée ; jamais de retour à une partie finie plus ancienne | `teams/*.jsonl` est en cache 15 s | Interview | 2026-11-01 |
+| D30 | Épinglage | Le direct automatique n'épingle pas et n'écrit pas `?game=` | Même règle que le suivi automatique existant | Interview | 2026-11-01 |
+| D31 | Sans équipe choisie | Inchangé : dernière partie finie | `direct.html` sert à tout regarder | Interview | 2026-11-01 |
 
 ## Dependency Graph & Implementation Order
 

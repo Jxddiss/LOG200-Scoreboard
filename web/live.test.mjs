@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { apply, ENDED_KEEP_MS, forget, liveUrl, mover } from './live.js'
+import { apply, ENDED_KEEP_MS, forget, liveUrl, mover, pickLive } from './live.js'
 
 const game = (id, extra = {}) => ({ id, red: 'a', black: 'b', opening: [], moves: [], move_ms: [], turn_ms: 0, ...extra })
 const snapshot = (...games) => ({ v: 1, type: 'snapshot', games })
@@ -48,4 +48,16 @@ test('une partie finie est oubliée après le délai', () => {
     games = apply(games, { v: 1, type: 'ended', id: 'g1', winner: 'red', reason: 'timeout' }, 100)
     assert.equal(forget(games, 100 + ENDED_KEEP_MS - 1), games)
     assert.equal(forget(games, 100 + ENDED_KEEP_MS).size, 0)
+})
+
+test("la partie suivie est la plus récente des équipes choisies, selon le filtre", () => {
+    const games = new Map([
+        ['g1', game('g1', { red: 'a', black: 'b', since: '2026-11-01T10:00:00Z' })],
+        ['g2', game('g2', { red: 'c', black: 'a', since: '2026-11-01T10:05:00Z' })],
+        ['g3', game('g3', { red: 'a', black: 'd', since: '2026-11-01T10:09:00Z', ended: { winner: 'red' } })],
+    ])
+    assert.equal(pickLive(games, ['a'], false).id, 'g2', 'la plus récente non finie')
+    assert.equal(pickLive(games, ['a', 'b'], true).id, 'g1', 'entre elles : les deux équipes choisies')
+    assert.equal(pickLive(games, ['d'], false), undefined, 'partie finie exclue')
+    assert.equal(pickLive(games, [], false), undefined)
 })

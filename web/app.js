@@ -31,7 +31,7 @@ import { BETWEEN, gamesOf, isRemote, ratingOf, record, since, versionStarts } fr
 import { createPicker } from './picker.js'
 import { fetchModel, percent, winProbability } from './predict.js'
 import { renderBoard } from './board.js'
-import { connectLive, liveUrl } from './live.js'
+import { connectLive, liveUrl, pickLive } from './live.js'
 import { positions, squareName } from './replay.js'
 
 const RECENT_GAMES = 50
@@ -127,8 +127,10 @@ async function refresh() {
         changed = (await follow()) || changed
         running = await fetchRunning().catch(() => [])
         model = await fetchModel(DATA)
-        if (first && GAME && running.some((g) => g.id === GAME)) watchLive()
+        if (first && GAME && running.some((g) => g.id === GAME)) ensureLive()
         else if (first && GAME) openLinked().catch(() => (replay.pinned = false))
+        const teams = selectedTeams()
+        if (running.some((g) => g.id && (teams.includes(g.red) || teams.includes(g.black)))) ensureLive()
         render()
         if (changed && !first) pulse()
         $('live').className = 'live on'
@@ -165,12 +167,10 @@ function follow() {
     return following
 }
 
-// Les parties de tournoi ne comptent que dans leur session.
 const outside = (g, session) => session === GLOBAL && Boolean(g.tournament)
 
 const matchMode = () => document.querySelector('#match input:checked')?.value ?? GLOBAL
 
-// Lien ?game= : l'id finit par `-<rouge>-<noir>`, la partie est dans le fichier de l'équipe rouge.
 async function openLinked() {
     const pair = GAME.slice(GAME.indexOf('-') + 1)
     const teams = allTeams()
@@ -182,12 +182,29 @@ async function openLinked() {
     else replay.pinned = false
 }
 
-function watchLive() {
+let liveGames = null
+
+function ensureLive() {
+    if (liveGames) return
+    liveGames = new Map()
     connectLive(liveUrl(SERVER, location.href), (games, state) => {
-        const g = games.get(GAME)
-        if (g) showLive(g)
-        else if (!replay.game && state === 'unavailable') $('replay-info').textContent = 'Direct indisponible sur ce serveur.'
+        liveGames = games
+        if (!followLive() && GAME && !replay.game && state === 'unavailable')
+            $('replay-info').textContent = 'Direct indisponible sur ce serveur.'
     })
+}
+
+function followLive() {
+    if (!liveGames) return false
+    const teams = selectedTeams()
+    const shown = replay.game?.live ? liveGames.get(replay.game.id) : undefined
+    const g = replay.pinned
+        ? liveGames.get(replay.game?.id ?? GAME)
+        : teams.length
+            ? (pickLive(liveGames, teams, matchMode() === BETWEEN) ?? shown)
+            : undefined
+    if (g) showLive(g)
+    return Boolean(g)
 }
 
 function showLive(g) {
@@ -195,11 +212,10 @@ function showLive(g) {
     const steps = positions(g)
     replay = {
         ...replay,
-        game: { id: g.id, red: { team: g.red }, black: { team: g.black } },
+        game: { id: g.id, red: { team: g.red }, black: { team: g.black }, live: true },
         steps,
         moveMs: g.move_ms,
         index: following ? steps.length - 1 : replay.index,
-        pinned: true,
     }
     $('step').max = String(steps.length - 1)
     const { winner, reason, cancelled, interrupted } = g.ended ?? {}
@@ -286,7 +302,8 @@ function render() {
     scrollAreas.forEach(markOverflow)
 
     const latest = list.at(-1)
-    if (latest && !replay.pinned && replay.game?.id !== latest.id) showGame(latest)
+    const newer = latest && !(replay.game?.live && latest.id <= replay.game.id)
+    if (!followLive() && newer && !replay.pinned && replay.game?.id !== latest.id) showGame(latest)
 }
 
 function duelIcon() {
@@ -300,7 +317,6 @@ function duelIcon() {
     return svg
 }
 
-// Un bouton quand l'adversaire a une ligne à montrer ; sinon (autre session) un simple repère.
 function duelBadge(opponent, color, listed, chance) {
     const odds = chance === null ? '' : `, ${percent(chance)} % de chances de gagner selon le modèle`
     const title = `Partie en cours contre ${opponent}${odds}`

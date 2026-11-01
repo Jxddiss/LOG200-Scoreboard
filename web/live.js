@@ -53,6 +53,12 @@ export function forget(games, now) {
     return kept.length === games.size ? games : new Map(kept)
 }
 
+export function pickLive(games, teams, between) {
+    const plays = (team) => teams.includes(team)
+    const fits = (g) => !g.ended && (between ? plays(g.red) && plays(g.black) : plays(g.red) || plays(g.black))
+    return [...games.values()].filter(fits).sort((a, b) => (a.since < b.since ? 1 : -1))[0]
+}
+
 export const mover = (g) => ((g.opening.length + g.moves.length) % 2 === 0 ? 'red' : 'black')
 
 export function connectLive(url, onChange) {
