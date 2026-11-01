@@ -184,7 +184,7 @@ function card(m, seeds, byId) {
         const score = el('span', { class: 'score' }, team && scored ? String(m.score[i]) : '')
         if (chance !== null) {
             score.classList.add('prob')
-            score.textContent = String(percent(chance))
+            score.textContent = `${percent(chance)}%`
             score.title = `${percent(chance)} % de chances de gagner une manche, selon le modèle (couleurs moyennées)`
         }
         return el(
