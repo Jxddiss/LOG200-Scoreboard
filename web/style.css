@@ -1608,10 +1608,30 @@ p.graph-link:hover {
 /* --- Direct ---------------------------------------------------------------------------------- */
 
 .live-link {
-    margin-left: 6px;
+    display: inline-flex;
+    flex: none;
+    margin-left: 4px;
     color: var(--ok);
-    font-size: 0.75rem;
-    font-weight: 600;
+}
+
+.live-link svg {
+    width: 1em;
+    height: 1em;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+}
+
+.live-link circle {
+    fill: currentColor;
+    stroke: none;
+}
+
+.live-link:focus-visible {
+    outline: 2px solid var(--ok);
+    outline-offset: 1px;
+    border-radius: 2px;
 }
 
 .live-grid {

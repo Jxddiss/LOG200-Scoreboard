@@ -55,6 +55,14 @@ export async function tail(url, state) {
     return true
 }
 
+// Lien vers une partie en cours, suivie en direct par le replay : une icône d'antenne.
+export function liveLink(id, title) {
+    const a = el('a', { class: 'live-link', href: pageUrl('./', { game: id }), title, 'aria-label': title })
+    a.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2.5" />
+        <path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4M4.9 4.9a10 10 0 0 0 0 14.2M19.1 4.9a10 10 0 0 1 0 14.2" /></svg>`
+    return a
+}
+
 export function setParam(key, value, keepEmpty = false) {
     const url = new URL(location.href)
     if (value || (keepEmpty && value === '')) url.searchParams.set(key, value)

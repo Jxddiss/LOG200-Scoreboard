@@ -1,7 +1,7 @@
 // Page Tournoi : tableau à double élimination d'un tournoi hebdomadaire, lu dans data/tournaments/, ou
 // aperçu du prochain (data/tournament-preview.json). ?tournament= suit le tableau affiché.
 
-import { $, DATA, el, fullFormat, linkPages, pageUrl, params, pulse, REFRESH_MS, setParam, timeFormat } from './common.js'
+import { $, DATA, el, fullFormat, linkPages, liveLink, pageUrl, params, pulse, REFRESH_MS, setParam, timeFormat } from './common.js'
 import { correction, tournamentDuration } from './estimate.js'
 import { fetchModel, percent, winProbability } from './predict.js'
 
@@ -236,7 +236,7 @@ function card(m, seeds, byId) {
     const head = el('p', { class: 'match-id' }, m.id)
     if (STATUS[m.status]) head.append(el('span', { class: `match-state ${m.status}` }, STATUS[m.status]))
     const live = m.status === 'running' && running.find((g) => g.id && g.tournament?.id === view.id && g.tournament.match === m.id)
-    if (live) head.append(el('a', { class: 'live-link', href: pageUrl('./', { game: live.id }), title: 'Suivre la manche en direct' }, 'direct'))
+    if (live) head.append(liveLink(live.id, 'Suivre la manche en direct'))
     if (m.side === 'final') head.append(el('span', { class: 'match-note' }, 'meilleur de 5, avance de 1–0'))
     wrap.append(
         head,

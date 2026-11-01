@@ -13,6 +13,7 @@ import {
     GLOBAL,
     initVerified,
     linkPages,
+    liveLink,
     pageUrl,
     params,
     pulse,
@@ -409,7 +410,7 @@ function renderRanking(ratings) {
                 if (r.provisional) line.append(el('span', { class: 'badge' }, 'provisoire'))
                 const duel = duels.get(r.team)
                 if (duel) line.append(duelBadge(duel.opponent, duel.color, listed.has(duel.opponent), duel.chance))
-                if (duel?.id) line.append(el('a', { class: 'live-link', href: pageUrl('./', { game: duel.id }), title: 'Suivre la partie en direct' }, 'direct'))
+                if (duel?.id) line.append(liveLink(duel.id, 'Suivre la partie en direct'))
                 return el(
                     'tr',
                     bot ? { class: 'bot', 'data-team': r.team } : { 'data-team': r.team },
