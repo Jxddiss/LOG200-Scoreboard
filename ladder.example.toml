@@ -175,7 +175,7 @@ cmd = [
     "--bot",
     "niveau-5",
     "--margin-ms",
-    "100",
+    "160",
 ]
 
 # Variante sur deux coeurs : ne joue que dans un slot `multithread = true`.
