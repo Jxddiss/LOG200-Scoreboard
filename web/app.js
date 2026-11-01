@@ -216,6 +216,7 @@ function showLive(g) {
 }
 
 function markOverflow(node) {
+    node.classList.toggle('less', node.scrollTop > 2)
     node.classList.toggle('more', node.scrollTop + node.clientHeight < node.scrollHeight - 2)
 }
 
