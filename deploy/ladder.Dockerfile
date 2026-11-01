@@ -26,8 +26,8 @@ COPY --chmod=755 prebuilt/${TARGETARCH}/ /artifacts/
 
 FROM ${BINARIES} AS binaries
 
-# runsc et ses binaires annexes sont statiques : on les prend dans le depot apt de gVisor, qui ne
-# garde que la derniere version (a mettre a jour ici quand elle change).
+# runsc et ses binaires annexes sont statiques : on les prend dans le depot apt de gVisor. Le suite date
+# (ex. 20261019) garde sa version, contrairement a "release" qui suit la derniere.
 FROM debian:bookworm-slim AS gvisor
 ARG RUNSC_VERSION=20261019.0
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
