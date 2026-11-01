@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="fr">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Direct du ladder Isolation</title>
+    <!-- Vide : données et direct sur le site qui sert la page. -->
+    <meta name="scoreboard-server" content="" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&display=swap" />
+    <link rel="stylesheet" href="style.css" />
+    <script type="module" src="direct.js"></script>
+</head>
+
+<body>
+    <header class="masthead">
+        <h1 class="title">Ladder Isolation <span class="title-course">LOG200</span></h1>
+        <nav class="pages" aria-label="Pages">
+            <a href="./">Classement</a>
+            <a href="graphe.html">Graphe</a>
+            <a href="tournoi.html">Tournoi</a>
+            <a href="direct.html" aria-current="page">Direct</a>
+        </nav>
+        <div class="controls">
+            <p class="status" role="status">
+                <span id="live" class="live" aria-hidden="true"></span>
+                <span id="status">Connexion au direct…</span>
+            </p>
+        </div>
+    </header>
+
+    <main class="layout tournament-layout">
+        <section class="panel tournament" aria-labelledby="direct-title">
+            <h2 id="direct-title">Parties en cours</h2>
+            <p id="direct-empty" class="empty" hidden>
+                Aucune partie en cours. Les parties du ladder et du tournoi apparaissent ici dès leur premier coup.
+            </p>
+            <div id="grid" class="live-grid"></div>
+        </section>
+    </main>
+</body>
+
+</html>

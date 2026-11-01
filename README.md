@@ -69,13 +69,13 @@ The relay starts the jar for every game and keeps reconnecting until stopped. Th
 | Path | Role |
 | --- | --- |
 | `src/rules.rs` | Game rules as applied by the official server (see `docs/rules.md`) |
-| `isolation-referee` | Headless referee for one game; speaks the official protocol, prints one JSON result |
+| `isolation-referee` | Headless referee for one game; speaks the official protocol, prints one JSON result (plus one line per move for the ladder's live view when its output is not a terminal) |
 | `isolation-bot` | Protocol client used for tests and conformance checks; its strategies `aleatoire` and `niveau-1` to `niveau-3` replicate the official server's CPU levels (`src/cpu.rs`); `niveau-4` and `niveau-5` are our own stronger engines (`src/engine.rs`) |
-| `isolation-ladder` | Schedules games between teams, appends to `data/games.jsonl`, publishes the Elo ranking the pages read (`data/summary.json`, `data/teams/`, `data/timeline.jsonl`), receives the teams' jars (`PUT /api/submit`, see `docs/formats.md`) and runs the weekly tournament (`[tournament]` in `ladder.toml`, `data/tournaments/`, see `docs/spec-tournoi-hebdo.md`) |
+| `isolation-ladder` | Schedules games between teams, appends to `data/games.jsonl`, publishes the Elo ranking the pages read (`data/summary.json`, `data/teams/`, `data/timeline.jsonl`), receives the teams' jars (`PUT /api/submit`, see `docs/formats.md`), streams the games in progress (`/api/live`, `[live]` in `ladder.toml`) and runs the weekly tournament (`[tournament]` in `ladder.toml`, `data/tournaments/`, see `docs/spec-tournoi-hebdo.md`) |
 | `isolation-check` | Replays and validates a JSONL file or an official save (`BOARDGAME 1`) |
 | `isolation-remote` | Relay for a team that plays from its own machine: starts the jar for each game and forwards its lines to the ladder (`/api/remote`, see `docs/formats.md`) |
 | `sandbox/` | gVisor sandboxes for the referee and each player (see `docs/formats.md`) |
-| `web/` | Static pages (vanilla JS): Elo ranking, recent games, replay; rank graph of the chosen teams (`graphe.html`); weekly tournament bracket (`tournoi.html`) |
+| `web/` | Static pages (vanilla JS): Elo ranking, recent games, replay; rank graph of the chosen teams (`graphe.html`); weekly tournament bracket (`tournoi.html`); games in progress, move by move (`direct.html`) |
 | `templates/ladder.yml` | GitHub Actions workflow for the team repositories: builds the jar and submits it on every push to `main` |
 
 The referee contract and the JSONL format are described in `docs/formats.md`. Any referee that follows it, such as the official C++ CLI, can replace ours.

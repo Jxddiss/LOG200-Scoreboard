@@ -463,6 +463,16 @@ impl Standings {
         Some((s.rating, s.order))
     }
 
+    pub fn recent_game_ms(&self, session: &str, time_ms: u64) -> Vec<u64> {
+        self.full.sessions.get(session).map_or_else(Vec::new, |s| {
+            s.recent
+                .iter()
+                .filter(|r| r.time_ms > 0)
+                .map(|r| r.duration_ms * time_ms / r.time_ms)
+                .collect()
+        })
+    }
+
     /// `at` : octets de la partie dans `games.jsonl`.
     pub fn record(&mut self, game: &GameRecord, at: Range<u64>) -> io::Result<()> {
         let row = self.play(game, at);

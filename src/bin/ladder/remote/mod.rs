@@ -9,10 +9,9 @@ use std::collections::HashMap;
 use std::fs;
 use std::net::TcpListener;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
@@ -28,7 +27,6 @@ const FINISH_WAIT: Duration = Duration::from_secs(2);
 /// Connexions simultanées, poignées de main comprises : au-delà, fermées aussitôt. Une session par
 /// équipe suffit, la marge absorbe les reconnexions.
 const MAX_CONNECTIONS: usize = 256;
-const ACCEPT_RETRY: Duration = Duration::from_millis(100);
 
 pub struct Registry {
     sessions: Mutex<HashMap<String, Arc<Session>>>,
@@ -182,48 +180,16 @@ pub fn serve(registry: &Arc<Registry>, cfg: &Config) -> anyhow::Result<()> {
 }
 
 fn listen(registry: Arc<Registry>, listener: TcpListener, teams: PathBuf, time_ms: u64) {
-    let open = Arc::new(AtomicUsize::new(0));
-    thread::spawn(move || {
-        for stream in listener.incoming() {
-            let Ok(stream) = stream else {
-                // Plus de descripteurs, par exemple : l'erreur reviendrait aussitôt.
-                thread::sleep(ACCEPT_RETRY);
-                continue;
-            };
-            let counted = Counted::enter(&open);
-            if counted.0.load(Ordering::Relaxed) > MAX_CONNECTIONS {
-                continue;
-            }
-            let (registry, teams) = (Arc::clone(&registry), teams.clone());
-            // Sans thread disponible, la connexion est fermée ; la boucle continue.
-            let _ = thread::Builder::new().spawn(move || {
-                let _counted = counted;
-                session::run(stream, &registry, &teams, time_ms);
-            });
-        }
+    crate::ws::listen(listener, MAX_CONNECTIONS, move |stream| {
+        session::run(stream, &registry, &teams, time_ms);
     });
-}
-
-/// Compte une connexion tant qu'il vit.
-struct Counted(Arc<AtomicUsize>);
-
-impl Counted {
-    fn enter(open: &Arc<AtomicUsize>) -> Self {
-        open.fetch_add(1, Ordering::Relaxed);
-        Self(Arc::clone(open))
-    }
-}
-
-impl Drop for Counted {
-    fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::Relaxed);
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::io::{BufRead, BufReader, Write};
     use std::net::TcpStream;
+    use std::thread;
 
     use tungstenite::client::IntoClientRequest;
     use tungstenite::http::HeaderValue;

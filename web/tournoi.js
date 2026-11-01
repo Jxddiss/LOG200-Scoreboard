@@ -2,6 +2,7 @@
 // aperçu du prochain (data/tournament-preview.json). ?tournament= suit le tableau affiché.
 
 import { $, DATA, el, fullFormat, linkPages, pageUrl, params, pulse, REFRESH_MS, setParam, timeFormat } from './common.js'
+import { correction, tournamentDuration } from './estimate.js'
 import { fetchModel, percent, winProbability } from './predict.js'
 
 const SIDES = [
@@ -10,6 +11,7 @@ const SIDES = [
 ]
 const STATUS = { running: 'en cours', suspended: 'suspendu' }
 const PREVIEW = 'apercu'
+const CALIBRATION = 5
 const dateFormat = new Intl.DateTimeFormat('fr-CA', { weekday: 'long', day: 'numeric', month: 'long' })
 const shortDate = new Intl.DateTimeFormat('fr-CA', { day: 'numeric', month: 'short', year: 'numeric' })
 
@@ -18,7 +20,10 @@ let view = null
 let viewText = null
 let previewText = null
 let builds = new Map()
+const finished = new Map()
+let factor = 1
 let model = null
+let running = []
 
 async function json(url) {
     const res = await fetch(url, { cache: 'no-store' })
@@ -30,7 +35,13 @@ async function refresh() {
     try {
         index = await json(`${DATA}/tournaments/index.json`).catch(() => ({ next: null, tournaments: [] }))
         builds = new Map(Object.entries((await json(`${DATA}/summary.json`).catch(() => ({}))).builds ?? {}))
+        const recent = index.tournaments.filter((t) => t.winner).slice(0, CALIBRATION)
+        for (const t of recent.filter((t) => !finished.has(t.id))) {
+            finished.set(t.id, await json(`${DATA}/tournaments/${encodeURIComponent(t.id)}.json`).catch(() => null))
+        }
+        factor = correction(recent.map((t) => finished.get(t.id)).filter(Boolean))
         model = await fetchModel(DATA)
+        running = await json(`${DATA}/live.json`).then((file) => file.games).catch(() => [])
         previewText = await fetch(`${DATA}/tournament-preview.json`, { cache: 'no-store' })
             .then((res) => (res.ok ? res.text() : null))
             .catch(() => null)
@@ -76,7 +87,11 @@ function renderPicker() {
 function render() {
     const next = index.next ? new Date(index.next) : null
     $('next').hidden = !next
-    if (next) $('next').textContent = `Prochain tournoi : ${dateFormat.format(next)}, ${timeFormat.format(next)}. Les jars acceptés avant le tirage jouent.`
+    const preview = previewText && JSON.parse(previewText)
+    const length = preview ? predicted(preview) : null
+    if (next) {
+        $('next').textContent = `Prochain tournoi : ${dateFormat.format(next)}, ${timeFormat.format(next)}${length ? `, durée prévue ≈ ${span(length)}` : ''}. Les jars acceptés avant le tirage jouent.`
+    }
     $('tournament-empty').hidden = Boolean(view)
     $('status').textContent = `À jour à ${timeFormat.format(new Date())}`
     if (!view) {
@@ -85,7 +100,7 @@ function render() {
         $('bracket').replaceChildren()
         return
     }
-    const pace = `${view.time_ms < 1000 ? `${view.time_ms} ms` : `${view.time_ms / 1000} s`} par coup`
+    const pace = `${view.time_ms < 1000 ? `${view.time_ms} ms` : `${view.time_ms / 1000} s`} par coup${timing()}`
     if (view.id === PREVIEW) {
         $('tournament-title').textContent = 'Aperçu du prochain tournoi'
         $('tournament-meta').textContent =
@@ -100,7 +115,29 @@ function render() {
     renderBracket()
 }
 
-// « eq07 v3 · 1612 Elo » : version et Elo au tirage.
+function predicted(v, fromStart = true) {
+    const ms = tournamentDuration(v, fromStart)
+    return ms === null ? null : ms * factor
+}
+
+function span(ms) {
+    const minutes = Math.round(ms / 60_000)
+    const h = Math.floor(minutes / 60)
+    return h ? `${h} h ${String(minutes % 60).padStart(2, '0')}` : `${minutes} min`
+}
+
+function timing() {
+    if (view.winner) {
+        if (!view.ended) return ''
+        const raw = tournamentDuration(view, true)
+        return ` · a duré ${span(Date.parse(view.ended) - Date.parse(view.ts))}${raw === null ? '' : ` (prévu au tirage ≈ ${span(raw)})`}`
+    }
+    const planned = predicted(view)
+    if (planned === null) return ''
+    if (view.id === PREVIEW) return ` · durée prévue ≈ ${span(planned)}`
+    return ` · fin prévue vers ${timeFormat.format(new Date(Date.now() + predicted(view, false)))}`
+}
+
 function describe(team) {
     const entrant = view.entrants.find((e) => e.team === team)
     const n = (builds.get(team)?.indexOf(entrant?.build) ?? -1) + 1
@@ -169,7 +206,7 @@ function card(m, seeds, byId) {
         'data-from': m.from.flatMap((f) => (f.winner ? [f.winner] : [])).join(','),
     })
     if (bye && !m.teams[0] && !m.teams[1]) return wrap
-    // Une place qui vient d'un match réglé sans partie est déjà une exemption.
+
     const awaiting = (from) => {
         const source = byId.get(from.winner ?? from.loser)
         if (bye || (source?.status === 'done' && !source.games.length && (from.loser || !source.winner))) return 'exempt'
@@ -198,6 +235,8 @@ function card(m, seeds, byId) {
     const label = [m.id, m.best_of === 5 ? 'meilleur de 5, le vainqueur du principal part à 1–0' : `meilleur de ${m.best_of}`]
     const head = el('p', { class: 'match-id' }, m.id)
     if (STATUS[m.status]) head.append(el('span', { class: `match-state ${m.status}` }, STATUS[m.status]))
+    const live = m.status === 'running' && running.find((g) => g.id && g.tournament?.id === view.id && g.tournament.match === m.id)
+    if (live) head.append(el('a', { class: 'live-link', href: pageUrl('./', { game: live.id }), title: 'Suivre la manche en direct' }, 'direct'))
     if (m.side === 'final') head.append(el('span', { class: 'match-note' }, 'meilleur de 5, avance de 1–0'))
     wrap.append(
         head,

@@ -97,6 +97,11 @@ min_interval_s = 300
 # listen = "0.0.0.0:8091"
 # connect = "unix:/tmp/isolation-ladder/{game}/{side}/sock"
 
+# Direct des parties pour la page (WebSocket /api/live, docs/formats.md) : chaque coup, au moment ou il
+# est joue. La page relaie /api/live vers listen ; sans cette section, la page Direct est indisponible.
+[live]
+listen = "0.0.0.0:8092"
+
 # Tournoi hebdomadaire en double elimination (docs/spec-tournoi-hebdo.md), entre les equipes qui ont
 # un jar accepte. Sans weekly, il ne part qu'a la main (isolation-ladder tournament start).
 [tournament]

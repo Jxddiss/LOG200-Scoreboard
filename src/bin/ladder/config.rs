@@ -63,6 +63,8 @@ pub struct Config {
     pub submit: Option<SubmitConfig>,
     /// Équipes qui jouent depuis leur machine. Demande `[submit]`, qui tient les tokens.
     pub remote: Option<RemoteConfig>,
+    /// Direct des parties pour la page (`/api/live`). Absent : pas de direct.
+    pub live: Option<LiveConfig>,
     pub tournament: Option<TournamentConfig>,
     #[serde(default, rename = "team")]
     pub teams: Vec<Team>,
@@ -236,6 +238,20 @@ impl Default for RemoteConfig {
         Self {
             listen: "0.0.0.0:8091".into(),
             connect: "unix:/tmp/isolation-ladder/{game}/{side}/sock".into(),
+        }
+    }
+}
+
+#[derive(Deserialize, Clone)]
+#[serde(default, deny_unknown_fields)]
+pub struct LiveConfig {
+    pub listen: String,
+}
+
+impl Default for LiveConfig {
+    fn default() -> Self {
+        Self {
+            listen: "0.0.0.0:8092".into(),
         }
     }
 }

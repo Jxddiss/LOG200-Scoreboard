@@ -29,7 +29,9 @@ import {
 import { BETWEEN, gamesOf, isRemote, ratingOf, record, since, versionStarts } from './elo.js'
 import { createPicker } from './picker.js'
 import { fetchModel, percent, winProbability } from './predict.js'
-import { BLACK, DESTROYED, positions, RED, SIZE, squareName } from './replay.js'
+import { renderBoard } from './board.js'
+import { connectLive, liveUrl } from './live.js'
+import { positions, squareName } from './replay.js'
 
 const RECENT_GAMES = 50
 const PLAY_MS = 500
@@ -124,7 +126,8 @@ async function refresh() {
         changed = (await follow()) || changed
         running = await fetchRunning().catch(() => [])
         model = await fetchModel(DATA)
-        if (first && GAME) openLinked().catch(() => (replay.pinned = false))
+        if (first && GAME && running.some((g) => g.id === GAME)) watchLive()
+        else if (first && GAME) openLinked().catch(() => (replay.pinned = false))
         render()
         if (changed && !first) pulse()
         $('live').className = 'live on'
@@ -178,7 +181,39 @@ async function openLinked() {
     else replay.pinned = false
 }
 
-// Fondu en bas d'une zone tant qu'il reste du contenu à faire défiler.
+function watchLive() {
+    connectLive(liveUrl(SERVER, location.href), (games, state) => {
+        const g = games.get(GAME)
+        if (g) showLive(g)
+        else if (!replay.game && state === 'unavailable') $('replay-info').textContent = 'Direct indisponible sur ce serveur.'
+    })
+}
+
+function showLive(g) {
+    const following = !replay.game || replay.index === replay.steps.length - 1
+    const steps = positions(g)
+    replay = {
+        ...replay,
+        game: { id: g.id, red: { team: g.red }, black: { team: g.black } },
+        steps,
+        moveMs: g.move_ms,
+        index: following ? steps.length - 1 : replay.index,
+        pinned: true,
+    }
+    $('step').max = String(steps.length - 1)
+    const { winner, reason, cancelled, interrupted } = g.ended ?? {}
+    const loser = winner === 'red' ? g.black : g.red
+    const state = !g.ended
+        ? 'en direct'
+        : cancelled
+            ? 'partie annulée'
+            : interrupted
+                ? 'direct interrompu'
+                : `${g[winner]} gagne, ${ENDINGS[reason]?.(loser) ?? reason}`
+    $('replay-info').replaceChildren(el('strong', {}, g.red), ' (rouge) contre ', el('strong', {}, g.black), ` (noir) : ${state}.`)
+    drawStep()
+}
+
 function markOverflow(node) {
     node.classList.toggle('more', node.scrollTop + node.clientHeight < node.scrollHeight - 2)
 }
@@ -187,7 +222,6 @@ const scrollAreas = [document.querySelector('.ranking-scroll'), $('games')]
 for (const node of scrollAreas) node.addEventListener('scroll', () => markOverflow(node), { passive: true })
 addEventListener('resize', () => scrollAreas.forEach(markOverflow))
 
-// Écouteurs sur le tbody : ses lignes sont reconstruites à chaque rafraîchissement.
 const rankingBody = $('ranking').querySelector('tbody')
 const opponentRow = (event) => {
     const team = event.target.closest?.('[data-opponent]')?.dataset.opponent
@@ -212,7 +246,6 @@ rankingBody.addEventListener('click', (event) => {
 
 function renderSessions(first) {
     fillSelect($('session'), summary.sessions, first ? (SESSION ?? summary.sessions[0]) : $('session').value)
-    // Ancien lien ?team= : réécrit en ?teams=.
     if (first && params.has('team')) {
         setParam('team', null)
         setParam('teams', selectedTeams().join(','))
@@ -224,7 +257,6 @@ function render() {
     const session = $('session').value
     const { verified, scopes } = scopesOf(summary)
     const scope = scopes[session]
-    // Colonne Elo des lignes : toutes sessions, ou la session choisie.
     const key = session === GLOBAL ? 'all' : 'session'
     const rating = (side) => ratingOf(side, key, verified)
     const teams = selectedTeams()
@@ -356,8 +388,8 @@ function renderRanking(ratings) {
     const isBot = (r) => !r.build
     const duels = new Map()
     for (const g of running) {
-        if (!duels.has(g.red)) duels.set(g.red, { opponent: g.black, color: 'red', chance: winProbability(model, g.red, g.black, 'red') })
-        if (!duels.has(g.black)) duels.set(g.black, { opponent: g.red, color: 'black', chance: winProbability(model, g.black, g.red, 'black') })
+        if (!duels.has(g.red)) duels.set(g.red, { id: g.id, opponent: g.black, color: 'red', chance: winProbability(model, g.red, g.black, 'red') })
+        if (!duels.has(g.black)) duels.set(g.black, { id: g.id, opponent: g.red, color: 'black', chance: winProbability(model, g.black, g.red, 'black') })
     }
     $('bot-note').hidden = !ratings.some(isBot)
     $('remote-note').hidden = !ratings.some((r) => r.remote)
@@ -377,6 +409,7 @@ function renderRanking(ratings) {
                 if (r.provisional) line.append(el('span', { class: 'badge' }, 'provisoire'))
                 const duel = duels.get(r.team)
                 if (duel) line.append(duelBadge(duel.opponent, duel.color, listed.has(duel.opponent), duel.chance))
+                if (duel?.id) line.append(el('a', { class: 'live-link', href: pageUrl('./', { game: duel.id }), title: 'Suivre la partie en direct' }, 'direct'))
                 return el(
                     'tr',
                     bot ? { class: 'bot', 'data-team': r.team } : { 'data-team': r.team },
@@ -599,27 +632,7 @@ function drawStep() {
     const { steps, moveMs, index } = replay
     const step = steps[index]
     const board = $('board')
-    const nodes = []
-    for (let y = 0; y < SIZE; y++) {
-        nodes.push(el('div', { class: 'label' }, String(SIZE - y)))
-        for (let x = 0; x < SIZE; x++) {
-            const i = y * SIZE + x
-            const v = step.cells[i]
-            const cell = el('div', { class: 'cell' })
-            if (v === DESTROYED) cell.classList.add('hole')
-            if (step.move) {
-                if (i === step.move.from) cell.classList.add('from')
-                if (i === step.move.to) cell.classList.add('to')
-                if (i === step.move.destroyed) cell.classList.add('destroyed-now')
-            }
-            if (v === RED) cell.append(el('div', { class: 'pawn red' }))
-            if (v === BLACK) cell.append(el('div', { class: 'pawn black' }))
-            nodes.push(cell)
-        }
-    }
-    nodes.push(el('div'))
-    for (let x = 0; x < SIZE; x++) nodes.push(el('div', { class: 'label' }, String.fromCharCode(65 + x)))
-    board.replaceChildren(...nodes)
+    renderBoard(board, step)
 
     // Les rouges jouent les coups impairs : 1, 3, 5...
     board.dataset.mover = index % 2 === 1 ? 'red' : 'black'

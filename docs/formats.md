@@ -17,7 +17,7 @@ flowchart LR
     ladder -- lance --> black
     red <-- TCP --> referee
     black <-- TCP --> referee
-    referee -- "1 objet JSON (stdout)" --> ladder
+    referee -- "événements, puis 1 objet JSON (stdout)" --> ladder
     ladder -- ajoute une ligne --> jsonl
     ladder -- classement, historiques --> page
     page -- fetch --> web
@@ -41,7 +41,8 @@ Le ladder lance l'arbitre à partir d'un gabarit configurable (`referee` dans `l
 1. L'arbitre écoute sur le port et écrit `LISTENING <port>` sur sa sortie d'erreur.
 2. La première connexion est le rouge, la seconde le noir. Après chacune, il écrit `CONNECTED red` puis `CONNECTED black` sur sa sortie d'erreur. Le ladder attend `CONNECTED red` avant de lancer le noir : sans ça, une JVM qui démarre plus lentement inverserait les couleurs.
 3. Il applique le protocole du serveur officiel (voir plus bas).
-4. À la fin, il écrit un seul objet JSON, sur une ligne, sur sa sortie standard, et sort avec le code 0 quel que soit le gagnant. Un joueur qui ne se connecte pas dans le délai perd la partie (`no_show`) sans qu'aucun coup soit joué ; si c'est le rouge, le ladder ne lance pas le noir.
+4. Pendant la partie, il **peut** écrire sur sa sortie standard des lignes d'événement (voir plus bas), que le ladder diffuse en direct.
+5. À la fin, il écrit l'objet résultat, sur une ligne, sur sa sortie standard, et sort avec le code 0 quel que soit le gagnant. Un joueur qui ne se connecte pas dans le délai perd la partie (`no_show`) sans qu'aucun coup soit joué ; si c'est le rouge, le ladder ne lance pas le noir.
 
 ```mermaid
 sequenceDiagram
@@ -70,6 +71,17 @@ sequenceDiagram
     A->>N: 5 LOSS <dernier coup>
     A-->>L: stdout : objet JSON, code 0
 ```
+
+### Lignes d'événement (facultatives)
+
+Avant le résultat, l'arbitre peut écrire des objets JSON d'une ligne qui portent un champ `event`. Chaque ligne doit être vidée aussitôt écrite : un stdout mis en tampon (C++ vers un tube, par exemple) n'arriverait qu'en fin de partie.
+
+| Ligne | Sens |
+| --- | --- |
+| `{"event":"ready"}` | Les deux joueurs sont connectés : le temps du premier coup court. |
+| `{"event":"move","move":"G1-E3-C12","ms":1234}` | Coup client accepté, au format de `moves`, et son temps (comme `move_ms`). Les coups d'`opening` n'en ont pas. |
+
+Le résultat est la première ligne JSON sans `event`. Une ligne qui n'est pas du JSON est journalisée puis ignorée, et un événement inconnu est ignoré. Un arbitre qui n'écrit aucun événement reste conforme : ses parties sont annoncées en direct, sans coups. Le ladder rejoue chaque coup reçu ; au premier coup illisible ou illégal, le direct de la partie s'arrête, sans effet sur la partie. `isolation-referee` n'écrit ces lignes que si sa sortie n'est pas un terminal : lancé à la main, il n'affiche que le résultat.
 
 Si une autre implémentation n'écrit pas `LISTENING` ni `CONNECTED red`, il suffit de laisser les marqueurs vides dans `ladder.toml` : le ladder attend alors `startup_ms` à la place.
 
@@ -145,11 +157,12 @@ La page ne lit jamais `games.jsonl` en entier : en fin de session, il pèse des 
   - `verified` : mêmes clés et même forme que `scopes`, mais sans les parties où un côté est `remote` : l'Elo y est recalculé sur les seules parties jouées sur le serveur. Absent tant qu'aucune partie distante n'a été jouée ; la page n'affiche sa case "Vérifiées seulement" qu'à partir de là.
 - `teams/<équipe>.jsonl` : une ligne par partie de l'équipe, en ajout seul comme `games.jsonl`. La page le suit quand la recherche désigne une seule équipe : courbe Elo et liste de ses parties.
 - `timeline.jsonl` : une ligne par partie, toutes équipes, en ajout seul. Elle ne garde que `v`, `id`, `ts`, `session`, `red` et `black` d'une ligne de partie, plus `tournament: true` pour une partie de tournoi (absent sinon) : assez pour rejouer les ratings de toutes les équipes, ce que fait la page graphe pour calculer les rangs.
-- `live.json`, réécrit au lancement et à la fin de chaque partie (fichier temporaire puis renommage) : `{"v": 1, "games": [{"red": "eq07", "black": "eq12", "since": "2026-10-24T14:20:48.103Z"}]}`, une entrée par partie en cours, la plus ancienne d'abord. `since` compte l'attente d'un slot, qu'un smoke test peut occuper. Une partie de tournoi porte aussi `tournament` (comme dans `games.jsonl`). Le ladder le vide au démarrage.
+- `live.json`, réécrit au lancement et à la fin de chaque partie (fichier temporaire puis renommage) : `{"v": 1, "games": [{"id": "20261024T142103.512Z-eq07-eq12", "red": "eq07", "black": "eq12", "since": "2026-10-24T14:20:48.103Z"}]}`, une entrée par partie en cours, la plus ancienne d'abord. `since` compte l'attente d'un slot, qu'un smoke test peut occuper. `id` (absent tant que la partie attend son slot) est celui qu'elle aura dans `games.jsonl` : la page s'en sert pour la suivre en direct. Une partie de tournoi porte aussi `tournament` (comme dans `games.jsonl`). Le ladder le vide au démarrage.
 - `tournaments/<id>.json`, réécrit au tirage, au lancement et à la fin de chaque partie du tournoi (voir [spec-tournoi-hebdo.md](spec-tournoi-hebdo.md)) :
-  - le tirage : `id`, `ts`, `session`, `time_ms`, `seed` (graine des ouvertures) et `entrants`, meilleure tête de série d'abord (`team`, `build`, `rating` au tirage, `multithread`) ;
+  - le tirage : `id`, `ts`, `session`, `time_ms`, `seed` (graine des ouvertures) et `entrants`, meilleure tête de série d'abord (`team`, `build`, `rating` au tirage, `multithread`), puis les entrées de la durée prévue : `game_ms` (durées des 50 dernières parties de la session, ramenées au temps par coup du tournoi) et `slots` (slots ordinaires puis multithread) ;
   - `matches`, dans l'ordre de jeu : `id` (`W1`, `L3`, `GF`), `side` (`winners`, `losers` ou `final`), `round`, `best_of`, `head_start` (manches d'avance par place), `from` (origine de chaque place : `{"seed": 1}`, `{"winner": "W1"}` ou `{"loser": "W1"}`), `teams` (`null` : pas encore connue, ou exemption), `score` (avance comprise), `status` (`waiting`, `ready`, `running`, `suspended` ou `done`), `winner` et `games` (ids des parties, pour le replay) ;
-  - `winner`, puis `places` à la fin : une place par équipe, dans l'ordre de `entrants`.
+  - `winner`, puis `places` à la fin : une place par équipe, dans l'ordre de `entrants` ;
+  - `ended` : fin de la dernière partie jouée (`null` avant la première). La page compare `ended` − `ts` à la durée prévue au tirage pour corriger ses prévisions.
 - `tournaments/index.json`, réécrit en même temps : `{"v": 1, "next": "2026-11-08T17:00:00Z", "tournaments": [{"id", "ts", "teams", "winner"}]}`, le plus récent d'abord. `next` (prochain créneau de `weekly`) est `null` sans horaire.
 - `tournament-preview.json`, réécrit au démarrage et après chaque partie : le tableau que donnerait un tirage maintenant, même forme que `tournaments/<id>.json` avec l'id `apercu`, sans partie ni `places`. Le `build` de chaque équipe est le dernier qu'elle a joué. Absent sous `min_teams`. Il reste hors de `tournaments/` : ce n'est pas un tournoi.
 - `model.json`, réécrit au démarrage puis toutes les 25 parties (fichier temporaire puis renommage) : la probabilité de victoire Bradley–Terry. P(rouge gagne) = σ(`s` rouge − `s` noir + `red_advantage`). Les parties retenues sont les parties vérifiées (aucun côté `remote`) et celles de tournoi, sans les fins `no_show`, `disconnect` et `protocol` ; les plus anciennes pèsent moins (demi-vie de 500 parties).
@@ -184,6 +197,26 @@ Une ligne de partie (dans `recent` et `teams/`) reprend la partie sans les coups
 - `at` : position et longueur de la ligne complète dans `games.jsonl`. Le replay la lit avec `Range: bytes=<début>-<fin>`.
 - Une ligne de `ratings` : `team`, `rating`, `games`, `wins`, `losses`, `build_games` et `build_wins` (parties et victoires du build courant, base du % V), `anchor`, `provisional`, `remote` (le build courant a joué au moins une partie à distance : badge "distant"), `build`, `last` (dernière partie), et `pace` (absent sans temps mesurés) : `mean` (moyenne arrondie), `p50`, `p95`, `p99`, `max` et `count` des temps par coup du build courant, `limit` le plus petit temps alloué.
 - Au démarrage, le ladder réécrit `teams/`, `timeline.jsonl` et `summary.json` à partir de `games.jsonl`. Une équipe dont le nom n'est pas fait de lettres, chiffres, `-` et `_` (64 au plus) n'a pas de fichier d'équipe.
+
+## Direct (`/api/live`)
+
+Avec `[live]` dans `ladder.toml`, le ladder diffuse les parties en cours (ladder et tournoi, ni les smoke tests ni les parties entre deux bots) par une WebSocket sur `/api/live`, sans authentification : il n'y passe que ce que `games.jsonl` publie de toute façon à la fin de la partie. Tout est en mémoire ; un redémarrage du ladder vide le direct.
+
+Le serveur parle seul. Chaque message est un objet JSON avec `v` (version du protocole : 1) et `type` :
+
+| `type` | Champs | Sens |
+| --- | --- | --- |
+| `snapshot` | `games` | Premier message : toutes les parties en cours. |
+| `started` | `game` | Une partie commence. |
+| `move` | `id`, `n`, `move`, `ms` | Coup client numéro `n` (index dans `moves`, à partir de 0) de la partie `id`. |
+| `ended` | `id`, puis `winner` et `reason`, ou `cancelled: true` | Fin de la partie. Annulée (arbitre en échec, résultat refusé…), elle n'aura pas de ligne dans `games.jsonl`. |
+
+Une partie (`games`, `game`) : `id`, `red`, `black`, `since` (lancement), `time_ms`, `tournament` (absent hors tournoi), `opening`, `moves`, `move_ms`, et `turn_ms` : temps déjà écoulé sur le coup en cours, mesuré par le ladder pour ne pas dépendre de l'horloge du client.
+
+- Le snapshot est pris au moment de l'inscription : aucun coup n'est perdu ni reçu deux fois. Un trou dans `n` signale une incohérence ; le client se reconnecte pour repartir d'un snapshot.
+- Une trame texte ou binaire du client ferme la connexion (code 1008). Ping toutes les 10 s ; sans pong depuis 30 s, la connexion tombe. Après 2 h, le serveur ferme (code 1000) et le client se reconnecte. À l'arrêt du ladder, ou si le client ne lit plus assez vite (64 messages en attente), la fermeture porte le code 1001.
+- 512 spectateurs au plus, en plus des 256 connexions de `/api/remote`. Une écriture bloquée plus de 5 s ferme la connexion.
+- Évolution : la version 1 ne reçoit que des ajouts (champs, valeurs de `type`), que le client ignore s'il ne les connaît pas. Une autre valeur de `v` arrête la page, qui demande d'être rechargée.
 
 ## Protocole des clients
 

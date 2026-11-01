@@ -47,6 +47,17 @@ pub struct GameResult {
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+#[serde(tag = "event", rename_all = "snake_case")]
+pub enum RefereeEvent {
+    Ready,
+    Move {
+        #[serde(rename = "move")]
+        mv: String,
+        ms: u64,
+    },
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
 pub struct Player {
     pub team: String,
     /// Identifie la version du jar : un nouveau hash marque une nouvelle soumission.

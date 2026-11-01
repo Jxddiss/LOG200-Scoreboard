@@ -67,6 +67,14 @@ Pour un pic de visiteurs (des centaines à la fois), un CDN comme Cloudflare abs
 
 Attention à `/api/submit` : Cloudflare coupe une requête sans réponse après 100 s (erreur 524), alors qu'un smoke test attend la partie en cours et les soumissions précédentes, ce qui peut prendre plusieurs minutes. Le ladder poursuit quand même : un 524 veut dire "verdict inconnu", pas "refusé" (voir `jars/submissions.jsonl` ou la version affichée sur la page). Pour que la CI reçoive toujours le verdict, faire pointer son `LADDER_URL` vers un nom d'hôte non proxifié (nuage gris dans Cloudflare) qui mène au même serveur.
 
+## Direct des parties
+
+La page Direct (`direct.html`) montre chaque partie en cours coup par coup, et le replay suit une partie lancée depuis un badge "direct". Le ladder les diffuse par une WebSocket sur `/api/live`, en lecture seule et sans authentification (protocole dans `docs/formats.md`). La section `[live]` de `ladder.toml` l'ouvre, le `Caddyfile` la relaie déjà ; sans elle, la page affiche "Direct indisponible" et le reste fonctionne.
+
+- Une ancienne `ladder.toml` n'a pas de section `[live]` : ajouter `[live]` puis `listen = "0.0.0.0:8092"`, et `docker compose restart ladder`.
+- Avec Nginx Proxy Manager, cocher "Websockets Support", comme pour `/api/remote`.
+- Le ladder accepte 512 spectateurs à la fois et ferme toute connexion au bout de 2 h (la page se reconnecte seule). Derrière Cloudflare, une règle de rate limiting sur le chemin `/api/live` (par exemple 20 requêtes par minute et par IP) empêche un seul client de prendre toutes les places ; le ladder ne voit que l'adresse du proxy.
+
 ## Équipes distantes (optionnel)
 
 Une équipe peut jouer sans téléverser son jar : il tourne sur sa machine, et `isolation-remote` relaie ses coups par une WebSocket sur `/api/remote` (voir "Jouer à distance" dans `docs/formats.md`). Pour l'ouvrir, décommenter la section `[remote]` de `ladder.toml`, puis `docker compose restart ladder`. Le `Caddyfile` relaie déjà `/api/remote` ; rien n'est exposé de plus que le port 8080.

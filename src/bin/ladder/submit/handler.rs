@@ -296,7 +296,10 @@ mod tests {
         let cfg: crate::config::Config = toml.parse().unwrap();
         let submit = cfg.submit.clone().unwrap();
         let token = add_team(&submit.teams, "eq07".parse().unwrap()).unwrap();
-        (Submissions::new(Arc::new(Arena::new(cfg)), submit), token)
+        (
+            Submissions::new(Arc::new(Arena::new(cfg, crate::hub::Hub::new(|_, _, _| {}))), submit),
+            token,
+        )
     }
 
     fn put<'a>(token: &'a str, body: &'a [u8]) -> Request<'a, &'a [u8]> {

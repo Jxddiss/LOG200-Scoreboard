@@ -10,6 +10,8 @@ use isolation::record::{TournamentGame, now_rfc3339};
 
 #[derive(Serialize)]
 struct Running {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
     red: String,
     black: String,
     since: String,
@@ -37,11 +39,23 @@ impl Live {
 
     pub fn start(&mut self, red: &str, black: &str, tournament: Option<&TournamentGame>) -> io::Result<()> {
         self.games.push(Running {
+            id: None,
             red: red.to_string(),
             black: black.to_string(),
             since: now_rfc3339(),
             tournament: tournament.cloned(),
         });
+        self.write()
+    }
+
+    pub fn assign(&mut self, red: &str, black: &str, id: &str) -> io::Result<()> {
+        if let Some(running) = self
+            .games
+            .iter_mut()
+            .find(|g| g.red == red && g.black == black && g.id.is_none())
+        {
+            running.id = Some(id.to_string());
+        }
         self.write()
     }
 
@@ -115,6 +129,16 @@ mod tests {
         let file = read(&dir);
         assert!(file["games"][0].get("tournament").is_none());
         assert_eq!(file["games"][1]["tournament"]["match"], "W1");
+    }
+
+    #[test]
+    fn a_game_gets_its_id_once_it_has_a_slot() {
+        let dir = temp_dir("live-id");
+        let mut live = Live::new(dir.clone()).unwrap();
+        live.start("a", "b", None).unwrap();
+        assert!(read(&dir)["games"][0].get("id").is_none());
+        live.assign("a", "b", "20261101T120000.000Z-a-b").unwrap();
+        assert_eq!(read(&dir)["games"][0]["id"], "20261101T120000.000Z-a-b");
     }
 
     #[test]

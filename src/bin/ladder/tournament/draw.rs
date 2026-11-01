@@ -29,8 +29,11 @@ pub struct Draw {
     pub session: String,
     pub time_ms: u64,
     pub seed: u64,
-    /// Meilleure tête de série d'abord.
     pub entrants: Vec<Entrant>,
+    #[serde(default)]
+    pub game_ms: Vec<u64>,
+    #[serde(default)]
+    pub slots: [usize; 2],
 }
 
 pub fn tournament_id(date: Date, taken: impl Fn(&str) -> bool) -> String {
@@ -44,7 +47,6 @@ pub fn tournament_id(date: Date, taken: impl Fn(&str) -> bool) -> String {
     id
 }
 
-/// Sans partie dans la session : 1500, après les équipes classées à 1500.
 pub fn seeding(mut candidates: Vec<(String, Option<(f64, usize)>)>) -> Vec<(String, f64)> {
     let key = |s: &Option<(f64, usize)>| s.unwrap_or((START, usize::MAX));
     candidates.sort_by(|(a, sa), (b, sb)| {
@@ -56,7 +58,6 @@ pub fn seeding(mut candidates: Vec<(String, Option<(f64, usize)>)>) -> Vec<(Stri
 
 pub const PREVIEW: &str = "apercu";
 
-/// Équipes avec un jar, meilleure tête de série d'abord ; `None` sous `min_teams`.
 fn seeded(cfg: &Config, standings: &Standings) -> anyhow::Result<Option<Vec<(Team, f64)>>> {
     let mut teams: HashMap<String, Team> = submit::active_teams(cfg)?
         .into_iter()
@@ -79,19 +80,21 @@ fn seeded(cfg: &Config, standings: &Standings) -> anyhow::Result<Option<Vec<(Tea
     ))
 }
 
-fn new_draw(cfg: &Config, id: &str, seed: u64, entrants: Vec<Entrant>) -> Draw {
+fn new_draw(cfg: &Config, standings: &Standings, id: &str, seed: u64, entrants: Vec<Entrant>) -> Draw {
+    let time_ms = cfg.tournament.clone().unwrap_or_default().time_ms;
     Draw {
         v: 1,
         id: id.to_string(),
         ts: now_rfc3339(),
         session: cfg.session.clone(),
-        time_ms: cfg.tournament.clone().unwrap_or_default().time_ms,
+        time_ms,
         seed,
         entrants,
+        game_ms: standings.recent_game_ms(&cfg.session, time_ms),
+        slots: [cfg.slots_of(false), cfg.slots_of(true)],
     }
 }
 
-/// Le tirage si le tournoi partait maintenant, sans figer de jar.
 pub fn preview(cfg: &Config, standings: &Standings) -> anyhow::Result<Option<Draw>> {
     let Some(seeded) = seeded(cfg, standings)? else {
         return Ok(None);
@@ -105,10 +108,9 @@ pub fn preview(cfg: &Config, standings: &Standings) -> anyhow::Result<Option<Dra
             team: team.id,
         })
         .collect();
-    Ok(Some(new_draw(cfg, PREVIEW, 0, entrants)))
+    Ok(Some(new_draw(cfg, standings, PREVIEW, 0, entrants)))
 }
 
-/// `None` : moins de `min_teams` équipes avec un jar.
 pub fn draw(cfg: &Config, standings: &Standings, id: &str, seed: u64) -> anyhow::Result<Option<Draw>> {
     let Some(seeded) = seeded(cfg, standings)? else {
         return Ok(None);
@@ -127,7 +129,7 @@ pub fn draw(cfg: &Config, standings: &Standings, id: &str, seed: u64) -> anyhow:
             team: team.id,
         });
     }
-    let draw = new_draw(cfg, id, seed, entrants);
+    let draw = new_draw(cfg, standings, id, seed, entrants);
     let path = draw_path(cfg, id);
     write_atomic(&path, &serde_json::to_vec(&draw)?).with_context(|| path.display().to_string())?;
     Ok(Some(draw))

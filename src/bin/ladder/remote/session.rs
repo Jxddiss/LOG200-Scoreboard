@@ -11,11 +11,11 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use tungstenite::handshake::server::{ErrorResponse, Request, Response};
+use tungstenite::handshake::server::{Request, Response};
 use tungstenite::http::StatusCode;
 use tungstenite::http::header::AUTHORIZATION;
+use tungstenite::protocol::WebSocketConfig;
 use tungstenite::protocol::frame::coding::CloseCode;
-use tungstenite::protocol::{CloseFrame, WebSocketConfig};
 use tungstenite::{Bytes, Error as WsError, Message as Frame, WebSocket};
 
 use isolation::remote::{Message, PATH, PROTOCOL_VERSION, is_build};
@@ -23,6 +23,7 @@ use isolation::remote::{Message, PATH, PROTOCOL_VERSION, is_build};
 use super::stream::RefereeStream;
 use super::{GameSpec, Registry, lock};
 use crate::submit::{find_team, load_teams};
+use crate::ws::{goodbye, refusal};
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const IDLE_POLL: Duration = Duration::from_millis(50);
@@ -37,8 +38,6 @@ const FRESH: Duration = Duration::from_secs(15);
 /// Dernières lignes de l'arbitre encore en route quand l'arène termine la partie.
 const END_GRACE: Duration = Duration::from_millis(500);
 const MAX_MESSAGE: usize = 64 << 10;
-/// Limite du protocole WebSocket pour la raison d'une fermeture.
-const MAX_REASON: usize = 123;
 /// Une partie dure quelques minutes, à un ping toutes les 10 s.
 const MAX_RTT_SAMPLES: usize = 64;
 /// Texte du client repris dans les journaux.
@@ -111,7 +110,7 @@ pub fn run(stream: TcpStream, registry: &Arc<Registry>, teams: &Path, time_ms: u
         Ok(build) => build,
         Err(reason) => {
             eprintln!("distant {team} refusé : {reason}");
-            goodbye(&mut ws, &reason);
+            goodbye(&mut ws, CloseCode::Policy, &reason);
             return;
         }
     };
@@ -127,7 +126,7 @@ pub fn run(stream: TcpStream, registry: &Arc<Registry>, teams: &Path, time_ms: u
     });
     if let Err(reason) = registry.open(&session, &build) {
         eprintln!("distant {team} refusé : {reason}");
-        goodbye(&mut ws, &reason);
+        goodbye(&mut ws, CloseCode::Policy, &reason);
         return;
     }
     eprintln!("distant : {team} connecté depuis {peer} (build {build})");
@@ -148,7 +147,7 @@ pub fn run(stream: TcpStream, registry: &Arc<Registry>, teams: &Path, time_ms: u
     match reason {
         Some(reason) => {
             eprintln!("distant : {team} déconnecté ({reason})");
-            goodbye(&mut link.ws, &reason);
+            goodbye(&mut link.ws, CloseCode::Policy, &reason);
         }
         None => eprintln!("distant : {team} déconnecté"),
     }
@@ -218,12 +217,6 @@ fn accept(stream: TcpStream, teams: &Path) -> Result<(WebSocket<TcpStream>, Stri
     Ok((ws, team))
 }
 
-fn refusal(status: StatusCode, body: &str) -> ErrorResponse {
-    let mut response = ErrorResponse::new(Some(format!("{body}\n")));
-    *response.status_mut() = status;
-    response
-}
-
 /// Build déclaré par le client.
 fn hello(ws: &mut WebSocket<TcpStream>) -> Result<String, String> {
     loop {
@@ -240,30 +233,6 @@ fn hello(ws: &mut WebSocket<TcpStream>) -> Result<String, String> {
             Ok(Message::Hello { .. }) => Err("build invalide : 16 caractères hexadécimaux attendus".into()),
             _ => Err("hello attendu en premier message".into()),
         };
-    }
-}
-
-/// Ferme proprement, raison comprise, sans attendre plus d'une seconde un client muet.
-fn goodbye(ws: &mut WebSocket<TcpStream>, reason: &str) {
-    let mut end = reason.len().min(MAX_REASON);
-    while !reason.is_char_boundary(end) {
-        end -= 1;
-    }
-    let frame = CloseFrame {
-        code: CloseCode::Policy,
-        reason: reason[..end].into(),
-    };
-    if ws.close(Some(frame)).is_err() {
-        return;
-    }
-    let _ = ws.get_ref().set_read_timeout(Some(Duration::from_millis(100)));
-    let deadline = Instant::now() + Duration::from_secs(1);
-    while Instant::now() < deadline {
-        match ws.read() {
-            Ok(_) => {}
-            Err(WsError::Io(e)) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {}
-            Err(_) => break,
-        }
     }
 }
 

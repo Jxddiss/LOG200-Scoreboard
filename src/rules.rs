@@ -215,7 +215,7 @@ impl Replay {
         Ok(replay)
     }
 
-    fn play(&mut self, index: usize, mv: Move) -> Result<(), ReplayError> {
+    pub fn play(&mut self, index: usize, mv: Move) -> Result<(), ReplayError> {
         if self.winner.is_some() {
             return Err(ReplayError::AfterEnd { index, mv });
         }

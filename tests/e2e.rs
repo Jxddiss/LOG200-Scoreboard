@@ -6,7 +6,7 @@ use std::net::TcpListener;
 use std::process::{Command, Stdio};
 
 use isolation::board::{Board, Color};
-use isolation::record::GameResult;
+use isolation::record::{GameResult, RefereeEvent};
 use isolation::rules::legal_moves;
 
 fn free_port() -> u16 {
@@ -38,7 +38,26 @@ fn play(bot_args: &[&str], opening: &str) -> GameResult {
     assert!(output.status.success());
     assert!(red.wait().unwrap().success(), "divergence vue par le rouge");
     assert!(black.wait().unwrap().success(), "divergence vue par le noir");
-    serde_json::from_slice(&output.stdout).unwrap()
+    let text = String::from_utf8(output.stdout).unwrap();
+    let (result, events) = text
+        .trim_end()
+        .lines()
+        .collect::<Vec<_>>()
+        .split_last()
+        .map(|(r, e)| (*r, e.to_vec()))
+        .unwrap();
+    let result: GameResult = serde_json::from_str(result).unwrap();
+    let events: Vec<RefereeEvent> = events.iter().map(|line| serde_json::from_str(line).unwrap()).collect();
+    assert_eq!(events.first(), Some(&RefereeEvent::Ready));
+    let moves: Vec<&str> = events[1..]
+        .iter()
+        .map(|event| match event {
+            RefereeEvent::Move { mv, .. } => mv.as_str(),
+            RefereeEvent::Ready => panic!("ready en double"),
+        })
+        .collect();
+    assert_eq!(moves, result.moves, "un événement par coup client, dans l'ordre");
+    result
 }
 
 #[test]

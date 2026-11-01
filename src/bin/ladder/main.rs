@@ -4,17 +4,21 @@
 
 mod arena;
 mod config;
+mod hub;
 mod journal;
 mod live;
 mod model;
 mod remote;
 mod schedule;
+mod spectate;
 mod standings;
 mod submit;
 mod tournament;
+mod ws;
 
 use std::collections::HashSet;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -33,6 +37,7 @@ use isolation::rules::random_opening;
 
 use arena::{Arena, Fixture, GameError};
 use config::{Config, Team};
+use hub::Hub;
 use journal::append_jsonl;
 use live::Live;
 use remote::Registry;
@@ -145,12 +150,13 @@ fn run(path: &Path, rounds: Option<u64>) -> anyhow::Result<()> {
     drop(history);
     let mut live = Live::new(cfg.data_dir().to_path_buf()).with_context(|| cfg.data_dir().display().to_string())?;
 
-    let arena = Arc::new(Arena::new(cfg));
+    let (reports, received) = mpsc::channel();
+    let hub = serve_live(&cfg, &reports)?;
+    let arena = Arc::new(Arena::new(cfg, Arc::clone(&hub)));
     arena.drain_on_sigterm().context("écoute de SIGTERM")?;
     arena.sweep();
     submit::serve(Arc::clone(&arena))?;
     let cfg = arena.config();
-    let (reports, received) = mpsc::channel();
     let remote = serve_remote(cfg, &reports)?;
 
     let mut rng = rand::rng();
@@ -204,20 +210,15 @@ fn run(path: &Path, rounds: Option<u64>) -> anyhow::Result<()> {
         };
         match report {
             Report::Wake => {}
-            Report::Started { red, black, game } => {
-                if let Err(e) = live.start(&red, &black, game.as_ref()) {
-                    eprintln!("   parties en cours non publiées : {e}");
-                }
-            }
+            Report::Started { red, black, game } => published(live.start(&red, &black, game.as_ref())),
+            Report::Assigned { red, black, id } => published(live.assign(&red, &black, &id)),
             Report::Played {
                 red,
                 black,
                 outcome,
                 game,
             } => {
-                if let Err(e) = live.end(&red, &black) {
-                    eprintln!("   parties en cours non publiées : {e}");
-                }
+                published(live.end(&red, &black));
                 let saved = save(cfg, &mut standings, outcome, &red, &black)?;
                 tournaments.publish_preview(cfg, &standings);
                 if let Some(game) = game {
@@ -233,10 +234,16 @@ fn run(path: &Path, rounds: Option<u64>) -> anyhow::Result<()> {
             }
         }
     }
+    hub.shutdown();
     Ok(())
 }
 
-/// `None` pour une partie annulée.
+fn published(written: io::Result<()>) {
+    if let Err(e) = written {
+        eprintln!("   parties en cours non publiées : {e}");
+    }
+}
+
 fn save(
     cfg: &Config,
     standings: &mut Standings,
@@ -285,13 +292,19 @@ fn launch_tournament(
 }
 
 /// Compte rendu d'un thread de paire, ou réveil à l'arrivée d'une équipe distante.
-#[expect(clippy::large_enum_variant, reason = "cinq messages par paire")]
+#[expect(clippy::large_enum_variant, reason = "six messages par paire")]
 enum Report {
     Wake,
     Started {
         red: String,
         black: String,
         game: Option<TournamentGame>,
+    },
+    /// La partie a obtenu un slot et son id.
+    Assigned {
+        red: String,
+        black: String,
+        id: String,
     },
     Played {
         red: String,
@@ -319,6 +332,21 @@ fn serve_remote(cfg: &Config, reports: &Sender<Report>) -> anyhow::Result<Option
     Ok(Some(registry))
 }
 
+/// Direct des parties : `live.json` apprend l'id de chaque partie lancée, et `/api/live` écoute si
+/// `[live]` est configuré.
+fn serve_live(cfg: &Config, reports: &Sender<Report>) -> anyhow::Result<Arc<Hub>> {
+    let assigned = reports.clone();
+    let hub = Hub::new(move |id, red, black| {
+        let _ = assigned.send(Report::Assigned {
+            red: red.into(),
+            black: black.into(),
+            id: id.into(),
+        });
+    });
+    spectate::serve(&hub, cfg)?;
+    Ok(hub)
+}
+
 /// Joue la paire dans les deux couleurs, avec la même ouverture. L'arène attribue un slot à chaque
 /// partie. Pendant l'arrêt, la seconde couleur n'est pas jouée.
 fn spawn_pair(arena: Arc<Arena>, a: Team, b: Team, opening: Vec<Move>, reports: Sender<Report>) {
@@ -329,7 +357,7 @@ fn spawn_pair(arena: Arc<Arena>, a: Team, b: Team, opening: Vec<Move>, reports: 
                 black: black.id.clone(),
                 game: None,
             });
-            let outcome = arena.play(red, black, &opening, None);
+            let outcome = arena.play(red, black, &opening, None, !(red.is_bot() && black.is_bot()));
             let failed = outcome.is_err();
             let _ = reports.send(Report::Played {
                 red: red.id.clone(),
@@ -366,7 +394,7 @@ fn spawn_game(arena: Arc<Arena>, p: Pending, reports: Sender<Report>) {
             game: p.game.clone(),
             time_ms: p.time_ms,
         };
-        let outcome = arena.play(&p.red, &p.black, &p.opening, Some(&fixture));
+        let outcome = arena.play(&p.red, &p.black, &p.opening, Some(&fixture), true);
         let failed = outcome.is_err();
         let _ = reports.send(Report::Played {
             red: p.red.id.clone(),

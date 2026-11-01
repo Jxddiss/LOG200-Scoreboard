@@ -1,6 +1,7 @@
 //! Arbitre d'une partie avec le protocole du serveur officiel. Le contrat avec le ladder (marqueurs
-//! sur stderr, résultat JSON sur stdout) est dans docs/formats.md.
+//! sur stderr, événements puis résultat JSON sur stdout) est dans docs/formats.md.
 
+use std::io::{self, IsTerminal};
 use std::net::{TcpListener, TcpStream};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
@@ -10,7 +11,7 @@ use clap::Parser;
 
 use isolation::board::{Board, ByColor, Color, Move, SIZE};
 use isolation::protocol::{LineConn, Outcome, RecvError, ServerMsg};
-use isolation::record::{GameResult, InvalidCounts, RECORD_VERSION, Reason};
+use isolation::record::{GameResult, InvalidCounts, RECORD_VERSION, Reason, RefereeEvent};
 use isolation::rules::{self, Replay};
 
 #[derive(Parser)]
@@ -80,6 +81,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 move_ms: Vec::new(),
                 invalid: InvalidCounts::default(),
             };
+            announce(&RefereeEvent::Ready);
             let verdict = referee.run();
             referee.players.red.shutdown();
             referee.players.black.shutdown();
@@ -123,11 +125,19 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn announce(event: &RefereeEvent) {
+    if io::stdout().is_terminal() {
+        return;
+    }
+    if let Ok(line) = serde_json::to_string(event) {
+        println!("{line}");
+    }
+}
+
 fn millis(since: Instant) -> u64 {
     u64::try_from(since.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
-/// Plateau après l'ouverture, qui doit laisser la main au rouge sans finir la partie.
 fn opening_board(opening: &[Move]) -> anyhow::Result<Board> {
     let replay = Replay::from_moves(opening.iter().copied()).context("ouverture")?;
     if replay.winner.is_some() {
@@ -144,17 +154,14 @@ enum Lobby {
     NoShow { absent: Color, red: Option<LineConn> },
 }
 
-/// Le premier client connecté joue le rouge, le second le noir.
 fn seat_players(listener: &TcpListener, timeout: Duration, time_ms: u64, board: &Board) -> anyhow::Result<Lobby> {
     let seat = |color| -> anyhow::Result<Option<LineConn>> {
-        // Un délai par joueur : le ladder ne lance le noir qu'après la connexion du rouge.
         let Some(stream) = accept(listener, Instant::now() + timeout).context("attente des joueurs")? else {
             eprintln!("{color} ne s'est pas connecté");
             return Ok(None);
         };
         let mut conn = LineConn::new(stream).context("socket")?;
         eprintln!("CONNECTED {color}");
-        // Un échec d'envoi ici sera vu comme une déconnexion au premier tour du joueur.
         let _ = conn.send(ServerMsg::NewGame {
             rows: SIZE.into(),
             cols: SIZE.into(),
@@ -244,7 +251,9 @@ impl Referee {
             };
             self.board.apply(mv);
             self.moves.push(mv);
-            self.move_ms.push(millis(asked));
+            let ms = millis(asked);
+            self.move_ms.push(ms);
+            announce(&RefereeEvent::Move { mv: mv.to_string(), ms });
             if let Some(winner) = rules::winner_after(&self.board, turn) {
                 for (color, outcome) in [(winner, Outcome::Win), (winner.other(), Outcome::Loss)] {
                     self.send(

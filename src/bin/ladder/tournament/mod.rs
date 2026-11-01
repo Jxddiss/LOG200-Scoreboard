@@ -63,6 +63,7 @@ pub struct View<'a> {
     matches: Vec<MatchView<'a>>,
     winner: Option<&'a str>,
     places: Option<Vec<usize>>,
+    ended: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -108,6 +109,7 @@ pub struct Tournament {
     running: Vec<bool>,
     suspended: Vec<bool>,
     games: Vec<Vec<String>>,
+    ended: Option<jiff::Timestamp>,
 }
 
 impl Tournament {
@@ -125,6 +127,7 @@ impl Tournament {
             running: vec![false; n],
             suspended: vec![false; n],
             games: vec![Vec::new(); n],
+            ended: None,
         }
     }
 
@@ -217,6 +220,13 @@ impl Tournament {
         {
             self.wins[k][slot] += 1;
             self.games[k].push(game.id.clone());
+            let end = game.ts.parse::<jiff::Timestamp>().ok().and_then(|t| {
+                t.checked_add(jiff::SignedDuration::from_millis(
+                    i64::try_from(game.result.duration_ms).ok()?,
+                ))
+                .ok()
+            });
+            self.ended = self.ended.max(end);
         }
     }
 
@@ -264,6 +274,7 @@ impl Tournament {
             matches,
             winner: self.winner(),
             places: self.bracket.placements(&statuses),
+            ended: self.ended.map(|t| t.to_string()),
         }
     }
 
@@ -321,6 +332,8 @@ pub(super) mod tests {
                     multithread: false,
                 })
                 .collect(),
+            game_ms: vec![],
+            slots: [1, 0],
         };
         let teams = names
             .iter()
@@ -381,7 +394,7 @@ pub(super) mod tests {
                 winner: if red_wins { Color::Red } else { Color::Black },
                 reason: Reason::NoMoves,
                 invalid: InvalidCounts::default(),
-                duration_ms: 0,
+                duration_ms: 1500,
                 move_ms: vec![],
             },
         }
@@ -405,6 +418,7 @@ pub(super) mod tests {
         t.finish("W2", Some(&game));
         let view = serde_json::to_value(t.view()).unwrap();
         assert_eq!(view["id"], "tournoi-2026-11-08");
+        assert_eq!(view["ended"], "2026-11-08T17:00:01.5Z");
         assert!(view["places"].is_null());
         let [w1, w2, w5] = [0, 1, 4].map(|k| view["matches"][k].clone());
         assert_eq!(w1["teams"], serde_json::json!(["t0", null]));
