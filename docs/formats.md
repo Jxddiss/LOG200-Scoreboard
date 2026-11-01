@@ -276,6 +276,7 @@ Un jar `Ladder-Threads: 2` joue toutes ses parties dans un slot `multithread`, a
 | 422 | Refusé par le smoke test ; la raison est dans la réponse et le jar actif reste en jeu. |
 | 429 | Trop tôt depuis la soumission précédente. |
 | 500 | Erreur du ladder pendant le smoke test : réessayer plus tard. |
+| 503 | Ladder en redémarrage : réessayer dans quelques minutes. |
 
 La réponse est un texte court destiné à l'équipe. Chaque soumission est notée dans `jars/submissions.jsonl`, qui n'est pas publié.
 

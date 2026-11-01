@@ -78,6 +78,8 @@ pub enum SubmitError {
     Ladder(GameError),
     #[error("installation du jar : {0}")]
     Install(io::Error),
+    #[error("ladder en redémarrage : réessayer dans quelques minutes")]
+    Draining,
 }
 
 impl SubmitError {
@@ -90,6 +92,7 @@ impl SubmitError {
             Self::TooSoon(_) => 429,
             Self::Rejected(_) => 422,
             Self::Registry(_) | Self::Stage(_) | Self::Ladder(_) | Self::Install(_) => 500,
+            Self::Draining => 503,
         }
     }
 }
@@ -151,6 +154,7 @@ impl Submissions {
         if fs::read(self.submit.current_jar(&team)).is_ok_and(|active| short_hash(&active) == hash) {
             return Ok(Accepted::AlreadyActive(hash));
         }
+        let _hold = self.arena.hold().ok_or(SubmitError::Draining)?;
         self.limiter()
             .acquire(&team, Instant::now())
             .map_err(SubmitError::TooSoon)?;
@@ -368,6 +372,19 @@ mod tests {
         let log = fs::read_to_string(submissions.submit.jars.join("submissions.jsonl")).unwrap();
         assert_eq!(log.lines().count(), 2);
         assert!(log.contains("\"verdict\":\"error\""));
+    }
+
+    #[test]
+    fn a_draining_ladder_refuses_without_using_the_team_slot() {
+        let (submissions, token) = submissions("draining");
+        submissions.arena.drain();
+        let error = submissions.handle(put(&format!("Bearer {token}"), JAR)).unwrap_err();
+        assert!(matches!(error, SubmitError::Draining), "{error}");
+        assert_eq!(error.status(), 503);
+        assert_eq!(submissions.arena.smoke_tests(), 0);
+        assert!(!submissions.submit.jars.join("submissions.jsonl").exists());
+        let team: TeamId = "eq07".parse().unwrap();
+        assert_eq!(submissions.limiter().acquire(&team, Instant::now()), Ok(()));
     }
 
     #[test]

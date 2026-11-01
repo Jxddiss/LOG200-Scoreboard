@@ -5,8 +5,9 @@ use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::Path;
 use std::process::{Child, ChildStdout, Command, ExitStatus, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
-use std::sync::{Condvar, Mutex, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::thread;
 use std::time::Duration;
 
@@ -55,6 +56,9 @@ pub struct Arena {
     cfg: Config,
     free: Mutex<Vec<usize>>,
     freed: Condvar,
+    /// Levé par SIGTERM : plus de nouvelle partie, on finit celles en cours.
+    draining: AtomicBool,
+    smoke_tests: AtomicUsize,
 }
 
 impl Arena {
@@ -64,11 +68,55 @@ impl Arena {
             cfg,
             free: Mutex::new(free),
             freed: Condvar::new(),
+            draining: AtomicBool::new(false),
+            smoke_tests: AtomicUsize::new(0),
         }
     }
 
     pub const fn config(&self) -> &Config {
         &self.cfg
+    }
+
+    /// SIGTERM, celui de `docker stop`, lance l'arrêt. SIGINT (Ctrl+C) reste immédiat.
+    #[cfg(unix)]
+    pub fn drain_on_sigterm(self: &Arc<Self>) -> io::Result<()> {
+        let mut signals = signal_hook::iterator::Signals::new([signal_hook::consts::SIGTERM])?;
+        let arena = Arc::clone(self);
+        thread::spawn(move || {
+            for _ in signals.forever() {
+                arena.drain();
+            }
+        });
+        Ok(())
+    }
+
+    #[cfg(not(unix))]
+    #[expect(clippy::unnecessary_wraps, clippy::unused_self, reason = "même signature que sous Unix")]
+    pub fn drain_on_sigterm(self: &Arc<Self>) -> io::Result<()> {
+        Ok(())
+    }
+
+    #[cfg_attr(not(unix), allow(dead_code))]
+    pub fn drain(&self) {
+        if !self.draining.swap(true, Ordering::SeqCst) {
+            eprintln!("arrêt demandé : fin des parties en cours, aucune nouvelle");
+        }
+    }
+
+    pub fn draining(&self) -> bool {
+        self.draining.load(Ordering::SeqCst)
+    }
+
+    /// Réserve la place d'un smoke test, refusée pendant l'arrêt. Compter avant de lire `draining` :
+    /// la boucle, qui lit dans l'ordre inverse, ne peut pas sortir sans voir ce smoke test.
+    pub fn hold(&self) -> Option<Hold<'_>> {
+        self.smoke_tests.fetch_add(1, Ordering::SeqCst);
+        let hold = Hold(self);
+        (!self.draining()).then_some(hold)
+    }
+
+    pub fn smoke_tests(&self) -> usize {
+        self.smoke_tests.load(Ordering::SeqCst)
     }
 
     /// Attend un slot libre de ce genre, celui de plus petit index.
@@ -187,6 +235,14 @@ impl Drop for Slot<'_> {
         free.push(self.index);
         free.sort_unstable_by(|a, b| b.cmp(a));
         self.arena.freed.notify_all();
+    }
+}
+
+pub struct Hold<'a>(&'a Arena);
+
+impl Drop for Hold<'_> {
+    fn drop(&mut self) {
+        self.0.smoke_tests.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -409,5 +465,18 @@ mod tests {
             drop(multithread);
             assert_eq!(rx.recv_timeout(Duration::from_secs(5)), Ok(1));
         });
+    }
+
+    #[test]
+    fn draining_refuses_new_smoke_tests_and_keeps_counting_running_ones() {
+        let cfg: Config = "referee = [\"r\"]\ntime_ms = 100\nsession = \"s\"\n".parse().unwrap();
+        let arena = Arena::new(cfg);
+        let running = arena.hold().unwrap();
+        arena.drain();
+        assert!(arena.draining());
+        assert!(arena.hold().is_none());
+        assert_eq!(arena.smoke_tests(), 1);
+        drop(running);
+        assert_eq!(arena.smoke_tests(), 0);
     }
 }

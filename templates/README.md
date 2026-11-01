@@ -50,6 +50,7 @@ Le smoke test joue deux parties et attend la fin de la partie en cours du ladder
 | `HTTP 422` | Refusé par le smoke test : dépassement de temps, déconnexion, absence ou coup invalide. L'ancienne version continue de jouer | Lire la raison, tester en local (voir plus bas), corriger |
 | `HTTP 429` | Soumission trop rapprochée de la précédente | Attendre le délai indiqué, puis **Run workflow** |
 | `HTTP 500` | Erreur du ladder | Réessayer plus tard |
+| `HTTP 503` | Ladder en redémarrage | **Run workflow** dans quelques minutes |
 | `HTTP 000` | Ladder injoignable | Vérifier `LADDER_URL` ; sinon, soumettre par le formulaire de la page |
 
 Perdre le smoke test n'est pas un refus : seul compte le fait de jouer jusqu'au bout avec des coups valides.

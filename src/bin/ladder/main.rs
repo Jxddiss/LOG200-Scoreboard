@@ -146,6 +146,7 @@ fn run(path: &Path, rounds: Option<u64>) -> anyhow::Result<()> {
     let mut live = Live::new(cfg.data_dir().to_path_buf()).with_context(|| cfg.data_dir().display().to_string())?;
 
     let arena = Arc::new(Arena::new(cfg));
+    arena.drain_on_sigterm().context("écoute de SIGTERM")?;
     arena.sweep();
     submit::serve(Arc::clone(&arena))?;
     let cfg = arena.config();
@@ -160,9 +161,9 @@ fn run(path: &Path, rounds: Option<u64>) -> anyhow::Result<()> {
     let mut running = [0; 2];
     let mut busy = HashSet::new();
     loop {
-        tournaments.tick(cfg, &standings, rng.random());
-        tournaments.poll(cfg, &standings, rng.random());
-        if rounds.is_none_or(|n| round < n) {
+        if !arena.draining() && rounds.is_none_or(|n| round < n) {
+            tournaments.tick(cfg, &standings, rng.random());
+            tournaments.poll(cfg, &standings, rng.random());
             launch_tournament(&arena, &mut tournaments, &mut busy, &mut running, &reports);
             if running.iter().sum::<usize>() < cfg.slots() {
                 let teams = roster(cfg, remote.as_ref(), &mut warned);
@@ -195,7 +196,7 @@ fn run(path: &Path, rounds: Option<u64>) -> anyhow::Result<()> {
                     waiting = true;
                 }
             }
-        } else if running == [0; 2] {
+        } else if running == [0; 2] && arena.smoke_tests() == 0 {
             break;
         }
         let Ok(report) = received.recv_timeout(IDLE_DELAY) else {
@@ -318,7 +319,8 @@ fn serve_remote(cfg: &Config, reports: &Sender<Report>) -> anyhow::Result<Option
     Ok(Some(registry))
 }
 
-/// Joue la paire dans les deux couleurs, avec la même ouverture. L'arène attribue un slot à chaque partie.
+/// Joue la paire dans les deux couleurs, avec la même ouverture. L'arène attribue un slot à chaque
+/// partie. Pendant l'arrêt, la seconde couleur n'est pas jouée.
 fn spawn_pair(arena: Arc<Arena>, a: Team, b: Team, opening: Vec<Move>, reports: Sender<Report>) {
     thread::spawn(move || {
         for (red, black) in [(&a, &b), (&b, &a)] {
@@ -335,11 +337,16 @@ fn spawn_pair(arena: Arc<Arena>, a: Team, b: Team, opening: Vec<Move>, reports: 
                 outcome,
                 game: None,
             });
+            if arena.draining() {
+                break;
+            }
             if failed {
                 thread::sleep(RETRY_DELAY);
             }
         }
-        thread::sleep(Duration::from_secs(arena.config().pause_s));
+        if !arena.draining() {
+            thread::sleep(Duration::from_secs(arena.config().pause_s));
+        }
         let multithread = arena.config().multithread_game(&a, &b);
         let _ = reports.send(Report::Done {
             pair: [a.id, b.id],
