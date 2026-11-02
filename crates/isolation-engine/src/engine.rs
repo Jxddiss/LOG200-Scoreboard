@@ -13,7 +13,7 @@ use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 
-use isolation_core::board::{Board, CELLS, Cell, Color, Move, SIZE, Square};
+use isolation_core::board::{Board, CELLS, Cell, Color, DIRS, Move, SIZE, Square};
 use isolation_core::rules;
 
 use crate::cpu::{self, Choice, Level};
@@ -558,12 +558,16 @@ impl Search {
             .into_iter()
             .fold(Bits::default(), |all, shift| all | Bits::of(them).shift(shift));
         let mut theirs: [Option<Reach>; 16] = [None; 16];
+        let their_near = reach(Bits::of(them), free);
         let (mut best, mut best_move, mut ceiling) = (-INF, None, -INF);
         'search: for &to in &*destinations {
             let mine = Reach::new(free, to);
             let bound = mine.value(them);
             let rings = rings(to, board.destroyed() + 1);
             let landed = lifted & !Bits::of(to);
+            let open = landed | Bits::of(them);
+            let always_moves =
+                (neighbours & landed).count() >= 3 && rings.as_slice().iter().any(|&ring| (ring & open).count() >= 2);
             let mut order: Stack<usize, 16> = Stack::new(0);
             order.extend(0..targets.len());
             for killer in killers.iter().rev().flatten().filter(|killer| killer.to == to) {
@@ -581,15 +585,20 @@ impl Search {
                     continue;
                 }
                 let destroyed = Bits::of(target.square);
-                let empty = landed & !destroyed;
-                let their = *theirs[index].get_or_insert_with(|| Reach::new(free & !destroyed, them));
+                let their = *theirs[index].get_or_insert_with(|| {
+                    let cut = (target.distance..=3).fold(Bits::default(), |all, distance| {
+                        all | Bits::of(them).shift(SHIFTS[target.direction] * i32::from(distance))
+                    });
+                    Reach::from_near(their_near & !cut, free & !destroyed, them)
+                });
                 let their_value = their.value(to);
-                let value = if !opponent_moves(them, neighbours, empty, rings.as_slice()) {
+                let value = if !always_moves && !opponent_moves(them, neighbours, landed & !destroyed, rings.as_slice())
+                {
                     -loss(ply + 1)
                 } else if bound - their_value <= best.max(alpha) {
                     ceiling = ceiling.max(bound - their_value);
                     continue;
-                } else if (mine.region() & destroyed).is_empty() {
+                } else if !mine.region().has(target.square) {
                     bound - their_value
                 } else {
                     Reach::new(free & !destroyed, to).value(them) - their_value
@@ -793,14 +802,21 @@ impl Grid {
 struct Reach {
     near: Bits,
     far: Bits,
+    total: i32,
 }
 
 impl Reach {
     fn new(free: Bits, pawn: Square) -> Self {
-        let near = reach(Bits::of(pawn), free);
+        Self::from_near(reach(Bits::of(pawn), free), free, pawn)
+    }
+
+    /// `near` doit valoir `reach(Bits::of(pawn), free)`
+    fn from_near(near: Bits, free: Bits, pawn: Square) -> Self {
+        let far = reach(near, free) & !near & !Bits::of(pawn);
         Self {
             near,
-            far: reach(near, free) & !near & !Bits::of(pawn),
+            far,
+            total: NEAR_WEIGHT * near.count() + FAR_WEIGHT * far.count(),
         }
     }
 
@@ -810,8 +826,13 @@ impl Reach {
 
     /// Sans compter `other`, la case du pion adverse.
     fn value(self, other: Square) -> i32 {
-        let other = !Bits::of(other);
-        NEAR_WEIGHT * (self.near & other).count() + FAR_WEIGHT * (self.far & other).count()
+        if self.near.has(other) {
+            self.total - NEAR_WEIGHT
+        } else if self.far.has(other) {
+            self.total - FAR_WEIGHT
+        } else {
+            self.total
+        }
     }
 }
 
@@ -821,16 +842,46 @@ fn territory(free: Bits, mine: Square, theirs: Square) -> i32 {
 
 /// Anneaux de destruction autour de `center`, dans l'ordre de repli de `rules::destroy_rings`.
 fn rings(center: Square, destroyed: u32) -> Stack<Bits, 3> {
-    let center = Bits::of(center);
     let mut rings = Stack::new(Bits::default());
     for ring in rules::destroy_rings(destroyed) {
         let ring = ring
             .clone()
-            .flat_map(|k| SHIFTS.map(|shift| center.shift(shift * i32::from(k))));
+            .map(|k| RING[usize::from(k.unsigned_abs()) - 1][center.index()]);
         rings.push(ring.fold(Bits::default(), |all, square| all | square));
     }
     rings
 }
+
+/// `RING[k - 1][case]` : les cases à `k` pas en ligne droite de la case, sur le plateau
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    reason = "petites coordonnées, positives une fois sur le plateau"
+)]
+const RING: [[Bits; CELLS]; 3] = {
+    let mut table = [[Bits([0; 3]); CELLS]; 3];
+    let mut k = 1;
+    while k <= 3 {
+        let mut cell = 0;
+        while cell < CELLS {
+            let (x, y) = ((cell % SIZE as usize) as i8, (cell / SIZE as usize) as i8);
+            let mut direction = 0;
+            while direction < DIRS.len() {
+                let (dx, dy) = DIRS[direction];
+                let (tx, ty) = (x + dx * k, y + dy * k);
+                if 0 <= tx && tx < SIZE as i8 && 0 <= ty && ty < SIZE as i8 {
+                    let bit = ty as usize * 16 + tx as usize;
+                    table[k as usize - 1][cell].0[bit / 64] |= 1 << (bit % 64);
+                }
+                direction += 1;
+            }
+            cell += 1;
+        }
+        k += 1;
+    }
+    table
+};
 
 /// Comme `rules::has_moves` : `open` compte la case de départ du joueur comme vide.
 fn can_move(destinations: Bits, open: Bits, rings: &[Bits]) -> bool {
@@ -898,13 +949,22 @@ impl Bits {
     }
 
     fn set(&mut self, square: Square, on: bool) {
-        let index = usize::from(square.y()) * 16 + usize::from(square.x());
-        let (word, bit) = (index / 64, 1 << (index % 64));
+        let (word, bit) = Self::locate(square);
         if on {
             self.0[word] |= bit;
         } else {
             self.0[word] &= !bit;
         }
+    }
+
+    fn has(self, square: Square) -> bool {
+        let (word, bit) = Self::locate(square);
+        self.0[word] & bit != 0
+    }
+
+    fn locate(square: Square) -> (usize, u64) {
+        let index = usize::from(square.y()) * 16 + usize::from(square.x());
+        (index / 64, 1 << (index % 64))
     }
 
     #[expect(clippy::inline_always, reason = "appelé avec un décalage constant")]
@@ -1375,6 +1435,37 @@ mod tests {
                 "
 {board}"
             );
+        }
+    }
+
+    #[test]
+    fn rings_follow_destroy_rings() {
+        for center in (0..CELLS).filter_map(Square::from_index) {
+            for destroyed in [0, 10, 20] {
+                let expected: Vec<Bits> = rules::destroy_rings(destroyed)
+                    .iter()
+                    .map(|ring| {
+                        let mut bits = Bits::default();
+                        for (dx, dy) in DIRS {
+                            for k in ring.clone() {
+                                if let Some(square) = center.offset(dx * k, dy * k) {
+                                    bits.set(square, true);
+                                }
+                            }
+                        }
+                        bits
+                    })
+                    .collect();
+                let board = (0..CELLS)
+                    .filter_map(Square::from_index)
+                    .fold(Bits::default(), |all, square| all | Bits::of(square));
+                let actual: Vec<Bits> = rings(center, destroyed)
+                    .as_slice()
+                    .iter()
+                    .map(|&ring| ring & board)
+                    .collect();
+                assert!(actual == expected, "{center} {destroyed}");
+            }
         }
     }
 

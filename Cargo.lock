@@ -577,7 +577,7 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
 name = "isolation-bot"
-version = "0.25.1"
+version = "0.25.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -588,7 +588,7 @@ dependencies = [
 
 [[package]]
 name = "isolation-check"
-version = "0.25.1"
+version = "0.25.2"
 dependencies = [
  "clap",
  "isolation-core",
@@ -597,7 +597,7 @@ dependencies = [
 
 [[package]]
 name = "isolation-core"
-version = "0.25.1"
+version = "0.25.2"
 dependencies = [
  "rand 0.10.3",
  "serde",
@@ -608,7 +608,7 @@ dependencies = [
 
 [[package]]
 name = "isolation-engine"
-version = "0.25.1"
+version = "0.25.2"
 dependencies = [
  "clap",
  "isolation-core",
@@ -617,7 +617,7 @@ dependencies = [
 
 [[package]]
 name = "isolation-ladder"
-version = "0.25.1"
+version = "0.25.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -638,7 +638,7 @@ dependencies = [
 
 [[package]]
 name = "isolation-referee"
-version = "0.25.1"
+version = "0.25.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -648,7 +648,7 @@ dependencies = [
 
 [[package]]
 name = "isolation-remote"
-version = "0.25.1"
+version = "0.25.2"
 dependencies = [
  "clap",
  "isolation-core",
@@ -664,9 +664,9 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "jiff"
-version = "0.2.38"
+version = "0.2.39"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2b005715dcbeb0089a3c0dab99f2ff1cc3b2525323552703d648585d342a383"
+checksum = "3ac703058abac89e5c39b0b879dce2b6b14a4ba36600c7e7e3d0c60a6883ef3c"
 dependencies = [
  "defmt",
  "jiff-core",
@@ -682,9 +682,9 @@ dependencies = [
 
 [[package]]
 name = "jiff-core"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e52fe76043ccecc9005d2305ebaadf7d7fc0cc89ca6baa10a94d6bc68c7128c"
+checksum = "aee43309eb53bafb8c36d35d6e444769c8f8e6206a9fbf7546f5db9d7d4a0e93"
 dependencies = [
  "defmt",
  "log",
@@ -692,9 +692,9 @@ dependencies = [
 
 [[package]]
 name = "jiff-static"
-version = "0.2.38"
+version = "0.2.39"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2cc9817253cf7c7ee4684451bd327e88d6f3658014e54a29198625590650695c"
+checksum = "6dc32470c67eb7d0e9ccb74303fa925313dc04cecb1aa048beaa6f391e36a93d"
 dependencies = [
  "jiff-core",
  "proc-macro2",
@@ -1532,14 +1532,15 @@ checksum = "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879"
 
 [[package]]
 name = "zip"
-version = "9.1.3"
+version = "9.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1156b39d142a34b999c2310a50455e0cb3760bf7efad0122f796d813bee26ccb"
+checksum = "e408c6cc4699dd017d53dc080cd51c2cea2b5354af57a1479bd265ed42911487"
 dependencies = [
  "crc32fast",
  "flate2",
  "getrandom 0.4.3",
  "indexmap",
+ "libc",
  "memchr",
  "nix",
  "typed-path",
