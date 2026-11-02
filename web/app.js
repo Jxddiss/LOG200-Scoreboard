@@ -53,6 +53,11 @@ const RECORD_STATS = {
     build: ['V–D v.', 'Victoires et défaites, version actuelle'],
 }
 let recordStat = params.get('record') in RECORD_STATS ? params.get('record') : 'all'
+const ELO_STATS = {
+    rating: ['Elo', 'Elo actuel'],
+    peak: ['Peak', 'Elo maximal atteint'],
+}
+let eloStat = params.get('elo') in ELO_STATS ? params.get('elo') : 'rating'
 const REMOTE_TITLE =
     "Joue depuis la machine de l'équipe : code non vérifié, sans limite de coeurs ni de mémoire, latence réseau comptée"
 const SESSION = params.get('session')
@@ -285,6 +290,7 @@ function render() {
         : scope.recent
     renderPaceHeader()
     renderRecordHeader()
+    renderEloHeader()
     renderRanking(scope.ratings)
     picker.render(teams)
     renderDuel(teams, scope.ratings, rows, session, verified)
@@ -379,6 +385,19 @@ function renderRecordHeader() {
     button.title = `${title}. Cliquer pour changer.`
 }
 
+function renderEloHeader() {
+    const [label, title] = ELO_STATS[eloStat]
+    const button = $('elo-stat')
+    button.textContent = label
+    button.title = `${title}. Cliquer pour changer.`
+}
+
+function nextEloStat() {
+    eloStat = eloStat === 'rating' ? 'peak' : 'rating'
+    setParam('elo', eloStat === 'rating' ? null : eloStat)
+    render()
+}
+
 function nextRecordStat() {
     recordStat = recordStat === 'all' ? 'build' : 'all'
     setParam('record', recordStat === 'all' ? null : recordStat)
@@ -434,7 +453,7 @@ function renderRanking(ratings) {
                     bot ? { class: 'bot', 'data-team': r.team } : { 'data-team': r.team },
                     el('td', { class: 'num rank' }, String(i + 1)),
                     team,
-                    el('td', { class: 'num elo' }, String(Math.round(r.rating))),
+                    el('td', { class: 'num elo' }, String(Math.round(r[eloStat] ?? r.rating))),
                     recordCell(r, v),
                     el(
                         'td',
@@ -751,6 +770,7 @@ $('match').addEventListener('change', (e) => {
 $('share').addEventListener('click', share)
 $('pace-stat').addEventListener('click', nextPaceStat)
 $('record-stat').addEventListener('click', nextRecordStat)
+$('elo-stat').addEventListener('click', nextEloStat)
 for (const input of document.querySelectorAll('#elo-window input'))
     input.checked = input.value === (WINDOW in WINDOWS ? WINDOW : GLOBAL)
 $('elo-window').addEventListener('change', (e) => {

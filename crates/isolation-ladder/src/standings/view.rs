@@ -87,6 +87,7 @@ pub(super) struct PaceView {
 pub(super) struct RatingRow<'a> {
     pub(super) team: &'a str,
     pub(super) rating: f64,
+    pub(super) peak: f64,
     pub(super) games: u32,
     pub(super) wins: u32,
     pub(super) losses: u32,

@@ -80,6 +80,7 @@ struct Standing {
     /// Ordre d'arrivée : départage les ratings égaux.
     order: usize,
     rating: f64,
+    peak: f64,
     games: u32,
     wins: u32,
     losses: u32,
@@ -108,6 +109,7 @@ impl Scope {
         let s = self.teams.entry(player.team.clone()).or_insert_with(|| Standing {
             order,
             rating: START,
+            peak: START,
             games: 0,
             wins: 0,
             losses: 0,
@@ -163,6 +165,7 @@ impl Scope {
                 k * (f64::from(u8::from(won)) - exp)
             };
             s.rating += delta;
+            s.peak = s.peak.max(s.rating);
             s.games += 1;
             s.games_on_build += 1;
             if won {
@@ -211,6 +214,7 @@ impl Scope {
             .map(|(team, s)| RatingRow {
                 team,
                 rating: round2(s.rating),
+                peak: round2(s.peak),
                 games: s.games,
                 wins: s.wins,
                 losses: s.losses,
@@ -545,6 +549,16 @@ mod tests {
         assert!(a.provisional);
         assert_eq!((a.games, a.build), (PROVISIONAL_GAMES + 1, Some("v2")));
         assert_eq!((a.build_games, a.build_wins), (1, 1));
+    }
+
+    #[test]
+    fn peak_keeps_the_best_rating() {
+        let mut scope = Scope::default();
+        scope.play(&game("a", "b", Color::Red));
+        scope.play(&game("a", "b", Color::Black));
+        let ratings = scope.ratings();
+        let a = rating(&ratings, "a");
+        assert!(a.peak > a.rating && a.peak > START);
     }
 
     #[test]
