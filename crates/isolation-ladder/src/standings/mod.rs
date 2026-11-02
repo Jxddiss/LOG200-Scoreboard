@@ -335,7 +335,10 @@ impl Standings {
         }
         timeline.flush()?;
         standings.write_summary()?;
-        standings.model.publish()?;
+        let full = &standings.full;
+        standings
+            .model
+            .publish(|team| full.all.teams.get(team).map_or(START, |s| s.rating))?;
         Ok(standings)
     }
 
@@ -374,7 +377,9 @@ impl Standings {
         }
         append_jsonl(&self.dir.join("timeline.jsonl"), &row.tick())?;
         self.write_summary()?;
-        self.model.publish_if_due()
+        let full = &self.full;
+        self.model
+            .publish_if_due(|team| full.all.teams.get(team).map_or(START, |s| s.rating))
     }
 
     fn play(&mut self, game: &GameRecord, at: Range<u64>) -> Row {

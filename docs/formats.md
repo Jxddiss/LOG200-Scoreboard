@@ -166,12 +166,13 @@ La page ne lit jamais `games.jsonl` en entier : en fin de session, il pèse des 
 - `tournaments/index.json`, réécrit en même temps : `{"v": 1, "next": "2026-11-08T17:00:00Z", "tournaments": [{"id", "ts", "teams", "winner"}]}`, le plus récent d'abord. `next` (prochain créneau de `weekly`) est `null` sans horaire.
 - `tournament-preview.json`, réécrit au démarrage et après chaque partie : le tableau que donnerait un tirage maintenant, même forme que `tournaments/<id>.json` avec l'id `apercu`, sans partie ni `places`. Le `build` de chaque équipe est le dernier qu'elle a joué. Absent sous `min_teams`. Il reste hors de `tournaments/` : ce n'est pas un tournoi.
 - `model.json`, réécrit au démarrage puis toutes les 25 parties (fichier temporaire puis renommage) : la probabilité de victoire Bradley–Terry. P(rouge gagne) = σ(`s` rouge − `s` noir + `red_advantage`). Les parties retenues sont les parties vérifiées (aucun côté `remote`) et celles de tournoi, sans les fins `no_show`, `disconnect` et `protocol` ; les plus anciennes pèsent moins (demi-vie de 500 parties).
-  - `usable` : vrai seulement si, sur les 20 % de parties les plus récentes (au plus 1000, au moins 30), le Brier du modèle bat celui de l'Elo d'avant partie. Chaque partie est notée par un modèle ajusté sur les parties qui la précèdent, réajusté toutes les 25 parties comme en service. Sinon la page n'affiche aucune probabilité ;
+  - `usable` : vrai seulement si, sur les 20 % de parties les plus récentes (au plus 1000, au moins 30), le Brier du modèle bat celui de l'Elo d'avant partie. Chaque partie est notée par un modèle ajusté sur les parties qui la précèdent, réajusté toutes les 25 parties comme en service ;
+  - `source` : `"model"` si `usable`, sinon `"elo"` : `teams` porte alors l'Elo toutes sessions (`s` = rating × ln 10 / 400) et `red_advantage` vaut 0, pour que la page affiche toujours la meilleure des deux probabilités ;
   - `teams` : par équipe, `s` (force) et `n` (parties retenues) ; `min_games` : en dessous, la page n'affiche rien pour l'équipe ;
   - `metrics` : `brier_model`, `brier_elo` et `holdout_n` sur les parties mises de côté (`null` et 0 sans historique), `tournament` (`{model, elo, n}` sur celles de tournoi, `null` sans), et `history` (les 20 derniers ajustements : `ts`, `brier_model`, `brier_elo`, `n`).
 
   ```json
-  { "v": 1, "ts": "2026-10-24T14:21:03.512Z", "usable": true, "red_advantage": 0.12, "min_games": 10,
+  { "v": 1, "ts": "2026-10-24T14:21:03.512Z", "usable": true, "source": "model", "red_advantage": 0.12, "min_games": 10,
     "teams": { "eq07": { "s": 0.8, "n": 42 } },
     "metrics": { "brier_model": 0.19, "brier_elo": 0.2, "holdout_n": 60, "tournament": null,
                  "history": [ { "ts": "2026-10-24T14:21:03.512Z", "brier_model": 0.19, "brier_elo": 0.2, "n": 60 } ] } }

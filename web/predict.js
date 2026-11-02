@@ -1,11 +1,11 @@
-// Probabilité de victoire du modèle publié dans model.json : force par équipe et avantage du rouge,
-// P(rouge gagne) = σ(sRouge − sNoir + c). Sans couleur, moyenne des deux attributions.
+// Probabilité de victoire publiée dans model.json (modèle, ou Elo s'il ne le bat pas) : force par équipe
+// et avantage du rouge, P(rouge gagne) = σ(sRouge − sNoir + c). Sans couleur, moyenne des deux attributions.
 
 const sigmoid = (x) => 1 / (1 + Math.exp(-x))
 
-// `null` tant que le modèle ne bat pas l'Elo, ou qu'une des équipes a trop peu de parties.
+// `null` sans model.json, ou si une des équipes a trop peu de parties.
 export function winProbability(model, team, opponent, color) {
-    if (!model?.usable) return null
+    if (!model?.teams) return null
     const a = model.teams[team]
     const b = model.teams[opponent]
     if (!a || !b || a.n < model.min_games || b.n < model.min_games) return null

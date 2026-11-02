@@ -235,6 +235,7 @@ struct View<'a> {
     v: u32,
     ts: &'a str,
     usable: bool,
+    source: &'static str,
     red_advantage: f64,
     min_games: u32,
     teams: BTreeMap<&'a str, TeamView>,
@@ -287,15 +288,16 @@ impl Model {
         });
     }
 
-    pub fn publish_if_due(&mut self) -> io::Result<()> {
+    pub fn publish_if_due(&mut self, rating: impl Fn(&str) -> f64) -> io::Result<()> {
         if self.since_fit >= REFIT_EVERY {
-            self.publish()?;
+            self.publish(rating)?;
         }
         Ok(())
     }
 
     /// Valide au fil des parties les plus récentes, puis ajuste sur toutes. Écrit à côté puis renomme.
-    pub fn publish(&mut self) -> io::Result<()> {
+    /// Si le modèle ne bat pas l'Elo, publie l'Elo (`rating`) sous la même forme.
+    pub fn publish(&mut self, rating: impl Fn(&str) -> f64) -> io::Result<()> {
         self.since_fit = 0;
         let (overall, tournament) = walk_forward(&self.samples);
         let usable = overall.is_some_and(|b| b.n >= HOLDOUT_MIN && b.model < b.elo);
@@ -309,7 +311,14 @@ impl Model {
             let excess = self.history.len().saturating_sub(HISTORY);
             self.history.drain(..excess);
         }
-        let full = fit(&self.samples);
+        let mut full = fit(&self.samples);
+        if !usable {
+            // 1 / (1 + 10^((Rb − Ra) / 400)) = σ((Ra − Rb) · ln 10 / 400)
+            for (team, &i) in &full.index {
+                full.strength[i] = rating(team) * std::f64::consts::LN_10 / 400.0;
+            }
+            full.red_advantage = 0.0;
+        }
         let mut games: HashMap<&str, u32> = HashMap::new();
         for g in &self.samples {
             for team in [&g.red, &g.black] {
@@ -320,6 +329,7 @@ impl Model {
             v: 1,
             ts: &self.ts,
             usable,
+            source: if usable { "model" } else { "elo" },
             red_advantage: round4(full.red_advantage),
             min_games: MIN_GAMES,
             teams: full
@@ -430,15 +440,16 @@ mod tests {
     }
 
     #[test]
-    fn model_is_published_only_when_it_beats_the_elo() {
+    fn elo_is_published_when_the_model_does_not_beat_it() {
         let dir = temp("gate");
         let mut model = Model::new(&dir);
         model.samples = ranked_games(400, 0.5);
-        model.publish().unwrap();
+        model.publish(|_| 1500.0).unwrap();
         let json = read(&dir);
         assert_eq!(json["usable"], true);
         assert!(json["metrics"]["brier_model"].as_f64().unwrap() < json["metrics"]["brier_elo"].as_f64().unwrap());
         assert_eq!(json["teams"]["a"]["n"], 200);
+        assert_eq!(json["source"], "model");
 
         let mut oracle = Model::new(&dir);
         oracle.samples = ranked_games(400, 0.5)
@@ -448,8 +459,15 @@ mod tests {
                 ..g
             })
             .collect();
-        oracle.publish().unwrap();
-        assert_eq!(read(&dir)["usable"], false);
+        oracle
+            .publish(|team| if team == "a" { 1900.0 } else { 1500.0 })
+            .unwrap();
+        let json = read(&dir);
+        assert_eq!(json["usable"], false);
+        assert_eq!(json["source"], "elo");
+        assert_eq!(json["red_advantage"], 0.0);
+        let gap = json["teams"]["a"]["s"].as_f64().unwrap() - json["teams"]["b"]["s"].as_f64().unwrap();
+        assert!((sigmoid(gap) - 10.0 / 11.0).abs() < 1e-3, "{gap}");
         assert_eq!(read(&dir)["metrics"]["history"].as_array().unwrap().len(), 2);
         let _ = fs::remove_dir_all(&dir);
     }
@@ -459,7 +477,7 @@ mod tests {
         let dir = temp("small");
         let mut model = Model::new(&dir);
         model.samples = ranked_games(40, 0.5);
-        model.publish().unwrap();
+        model.publish(|_| 1500.0).unwrap();
         assert_eq!(read(&dir)["usable"], false);
         assert!(!dir.join("model.json.tmp").exists());
         let _ = fs::remove_dir_all(&dir);
@@ -468,7 +486,7 @@ mod tests {
     #[test]
     fn empty_history_publishes_an_unusable_model() {
         let dir = temp("empty");
-        Model::new(&dir).publish().unwrap();
+        Model::new(&dir).publish(|_| 1500.0).unwrap();
         let json = read(&dir);
         assert_eq!(json["usable"], false);
         assert_eq!(json["teams"].as_object().unwrap().len(), 0);

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { percent, winProbability } from './predict.js'
 
 const model = {
-    usable: true,
+    usable: false,
     red_advantage: 0.4,
     min_games: 10,
     teams: { a: { s: 1, n: 30 }, b: { s: 0, n: 30 }, new: { s: 0, n: 3 } },
@@ -29,9 +29,8 @@ test('sans couleur : moyenne des deux couleurs', () => {
     assert.equal(winProbability(model, 'a', 'b'), mean)
 })
 
-test('rien à afficher sans modèle utilisable, équipe inconnue ou trop peu de parties', () => {
+test('rien à afficher sans modèle, équipe inconnue ou trop peu de parties', () => {
     assert.equal(winProbability(null, 'a', 'b'), null)
-    assert.equal(winProbability({ ...model, usable: false }, 'a', 'b'), null)
     assert.equal(winProbability(model, 'a', 'inconnue'), null)
     assert.equal(winProbability(model, 'a', 'new'), null)
 })
