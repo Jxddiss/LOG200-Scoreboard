@@ -194,7 +194,7 @@ impl Submissions {
             .and_then(|()| fs::write(&staging, jar))
             .map_err(SubmitError::Stage)?;
         eprintln!("soumission {team} {hash} : smoke test...");
-        let outcome = match smoke_test(&self.arena, &self.submit, team, &staging) {
+        let outcome = match smoke_test(&self.arena, &self.submit, team, &staging, multithread) {
             Verdict::Accepted => install(&dir, &staging)
                 .map(|()| Accepted::Installed {
                     hash: hash.to_string(),

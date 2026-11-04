@@ -90,9 +90,9 @@ pub enum Verdict {
 
 pub const SMOKE_OPPONENT: &str = "test-aleatoire";
 
-pub fn smoke_test(arena: &Arena, submit: &SubmitConfig, id: &TeamId, jar: &Path) -> Verdict {
+pub fn smoke_test(arena: &Arena, submit: &SubmitConfig, id: &TeamId, jar: &Path, multithread: bool) -> Verdict {
     let cfg = arena.config();
-    let candidate = Team::with_jar(cfg, id, jar, false);
+    let candidate = Team::with_jar(cfg, id, jar, multithread);
     let opponent = Team {
         id: SMOKE_OPPONENT.into(),
         cmd: submit.opponent.clone(),

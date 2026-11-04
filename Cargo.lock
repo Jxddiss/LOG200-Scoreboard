@@ -577,7 +577,7 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
 name = "isolation-bot"
-version = "0.25.2"
+version = "0.25.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -588,7 +588,7 @@ dependencies = [
 
 [[package]]
 name = "isolation-check"
-version = "0.25.2"
+version = "0.25.3"
 dependencies = [
  "clap",
  "isolation-core",
@@ -597,7 +597,7 @@ dependencies = [
 
 [[package]]
 name = "isolation-core"
-version = "0.25.2"
+version = "0.25.3"
 dependencies = [
  "rand 0.10.3",
  "serde",
@@ -608,7 +608,7 @@ dependencies = [
 
 [[package]]
 name = "isolation-engine"
-version = "0.25.2"
+version = "0.25.3"
 dependencies = [
  "clap",
  "isolation-core",
@@ -617,7 +617,7 @@ dependencies = [
 
 [[package]]
 name = "isolation-ladder"
-version = "0.25.2"
+version = "0.25.3"
 dependencies = [
  "anyhow",
  "axum",
@@ -638,7 +638,7 @@ dependencies = [
 
 [[package]]
 name = "isolation-referee"
-version = "0.25.2"
+version = "0.25.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -648,7 +648,7 @@ dependencies = [
 
 [[package]]
 name = "isolation-remote"
-version = "0.25.2"
+version = "0.25.3"
 dependencies = [
  "clap",
  "isolation-core",
@@ -1191,9 +1191,9 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "1.1.8+spec-1.1.0"
+version = "1.2.0+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20489e00e4d8741d6be680764cc12e270655e375a20d1011e844a9c3379e678d"
+checksum = "c5ffcdf8f50436dbbfd675c1fe1b8e0854f42b7defea8584bdebe1aee900e561"
 dependencies = [
  "indexmap",
  "serde_core",
@@ -1224,9 +1224,9 @@ dependencies = [
 
 [[package]]
 name = "toml_writer"
-version = "1.1.3+spec-1.1.0"
+version = "1.2.0+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06bdbd8cfc056b8d2e2e85f29b56a3bdbecb527cef81eb39e3e7b98af4652770"
+checksum = "009dbb7700f11c55ef83aebbe4c0e9cf1f1ac0844bd8d6f00dc38f302026e13a"
 
 [[package]]
 name = "tower"
@@ -1532,9 +1532,9 @@ checksum = "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879"
 
 [[package]]
 name = "zip"
-version = "9.2.2"
+version = "9.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e408c6cc4699dd017d53dc080cd51c2cea2b5354af57a1479bd265ed42911487"
+checksum = "eaeb7f16d2605b49aef586996ded29e65642fab7259a3077e537351df6d80426"
 dependencies = [
  "crc32fast",
  "flate2",

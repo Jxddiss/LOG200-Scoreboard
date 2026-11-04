@@ -3,7 +3,7 @@ members = ["crates/*"]
 resolver = "3"
 
 [workspace.package]
-version = "0.25.2"
+version = "0.25.3"
 edition = "2024"
 publish = false
 
@@ -23,9 +23,9 @@ sha2 = "0.11.1"
 signal-hook = "0.4"
 thiserror = "2"
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "net"] }
-toml = "1.1.8"
+toml = "1.2.0"
 tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }
-zip = { version = "9.2.2", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+zip = { version = "9.3.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
