@@ -1,7 +1,9 @@
 // File d'attente du ladder (queue.json), dessinée comme un plateau : un arbre binaire de recherche
 // équilibré dont l'ordre infixe est celui de la file. La prochaine équipe libre est la case rouge.
+// À partir de LIST_FROM équipes, l'arbre serait trop large : les cases se rangent en liste.
 
 const SVG = 'http://www.w3.org/2000/svg'
+export const LIST_FROM = 60
 const COLUMN = 72
 const ROW = 70
 const TILE = { w: 64, h: 40 }
@@ -50,9 +52,11 @@ function tile(node, { x, y }, pawn, next) {
         style: `--d: ${node.depth}`,
     })
     const where = pawn ? `, en partie avec les ${pawn === 'red' ? 'rouges' : 'noirs'}` : ''
+    const box = { x: x - TILE.w / 2, y: y - TILE.h / 2, width: TILE.w, height: TILE.h, rx: 5 }
     group.append(
         svg('title', {}, `${node.id} : ${signed(node.ahead)}${where}`),
-        svg('rect', { x: x - TILE.w / 2, y: y - TILE.h / 2, width: TILE.w, height: TILE.h, rx: 5 }),
+        svg('rect', { ...box, class: 'base' }),
+        svg('rect', box),
         svg('text', { class: 'name', x, y: y - 2 }, short(node.id)),
         svg('text', { class: 'ahead', x, y: y + 12 }, signed(node.ahead)),
     )
@@ -61,7 +65,7 @@ function tile(node, { x, y }, pawn, next) {
     return group
 }
 
-// shortcut: une colonne par équipe, l'arbre défile au-delà d'une quinzaine ; passer à une liste vers 60.
+// Une colonne par équipe : l'arbre défile horizontalement au-delà d'une quinzaine.
 function draw(teams, busy, next) {
     const nodes = layout(teams, next)
     const depth = Math.max(...nodes.map((n) => n.depth))
@@ -138,6 +142,25 @@ function slide(root, before, at) {
     root.classList.add('moving')
 }
 
+// Les mêmes cases, dans l'ordre de la file, de gauche à droite puis de haut en bas.
+function list(teams, busy, next) {
+    const span = (className, textContent) => Object.assign(document.createElement('span'), { className, textContent })
+    const root = Object.assign(document.createElement('ol'), { className: 'queue-list' })
+    teams.forEach((team, i) => {
+        const pawn = busy.get(team.id)
+        const kind = [team.bot ? 'bot' : 'team', i === next && 'next', pawn && 'busy'].filter(Boolean)
+        const where = pawn ? `, en partie avec les ${pawn === 'red' ? 'rouges' : 'noirs'}` : ''
+        const item = Object.assign(document.createElement('li'), {
+            className: kind.join(' '),
+            title: `${team.id} : ${signed(team.ahead)}${where}`,
+        })
+        item.append(span('name', team.id), span('ahead', signed(team.ahead)))
+        if (pawn) item.append(span(`pawn ${pawn}`, ''))
+        root.append(item)
+    })
+    return root
+}
+
 function sentence(names) {
     const strong = names.map((name) => Object.assign(document.createElement('strong'), { textContent: name }))
     const parts = []
@@ -178,6 +201,12 @@ export function createQueueView({ tree, lede }) {
                     : ['Toutes les équipes sont en partie.']),
                 games ? ` ${games} partie${games > 1 ? 's' : ''} en cours.` : '',
             )
+            tree.dataset.shape = teams.length >= LIST_FROM ? 'list' : 'tree'
+            if (tree.dataset.shape === 'list') {
+                positions = null
+                tree.replaceChildren(list(teams, busy, next))
+                return
+            }
             const { root, at } = draw(teams, busy, next)
             const before = positions
             positions = at
