@@ -573,6 +573,7 @@ tbody tr:first-child .elo {
 }
 
 @container ranking (max-width: 330px) {
+
     .elo,
     th:nth-child(3) {
         display: none;
@@ -2174,7 +2175,6 @@ p.graph-link:hover {
 }
 
 .queue-lede {
-    max-width: 64ch;
     margin-top: 6px;
     color: var(--muted);
     min-height: 1.45em;
@@ -2480,7 +2480,7 @@ p.graph-link:hover {
     box-shadow: 0 0 0 1.5px var(--pawn-rim);
 }
 
-.queue-tree[data-shape='list'] ~ .queue-foot .queue-fine {
+.queue-tree[data-shape='list']~.queue-foot .queue-fine {
     display: none;
 }
 
@@ -2535,7 +2535,6 @@ p.graph-link:hover {
     display: grid;
     align-content: start;
     gap: 10px;
-    max-width: 62ch;
     color: var(--muted);
 }
 
@@ -2544,6 +2543,7 @@ p.graph-link:hover {
 }
 
 @media (max-width: 720px) {
+
     .queue-head,
     .queue-tree,
     .queue-foot {
@@ -2556,6 +2556,7 @@ p.graph-link:hover {
 }
 
 @media (prefers-reduced-motion: reduce) {
+
     .queue[open],
     .queue svg .node,
     .queue svg .edge,
