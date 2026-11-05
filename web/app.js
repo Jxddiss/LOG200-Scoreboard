@@ -812,22 +812,14 @@ $('next').addEventListener('click', () => browse(replay.index + 1))
 $('last').addEventListener('click', () => browse(replay.steps.length - 1))
 $('play').addEventListener('click', togglePlayback)
 $('step').addEventListener('input', (e) => browse(+e.target.value))
-// Easter egg : taper « file » ouvre ou ferme la file d'attente.
-let typed = ''
 document.addEventListener('keydown', (e) => {
-    if (e.target.closest('input, select, textarea, [contenteditable], [role="slider"]')) return
-    const queue = $('queue')
-    if (e.key === 'ArrowLeft' && !queue.open) browse(replay.index - 1)
-    if (e.key === 'ArrowRight' && !queue.open) browse(replay.index + 1)
-    if (e.key.length !== 1 || e.ctrlKey || e.metaKey || e.altKey) return
-    typed = (typed + e.key.toLowerCase()).slice(-4)
-    if (typed !== 'file') return
-    typed = ''
-    if (queue.open) queue.close()
-    else {
-        queue.showModal()
-        showQueue()
-    }
+    if (e.target.closest('input, select, textarea, [contenteditable], [role="slider"]') || $('queue').open) return
+    if (e.key === 'ArrowLeft') browse(replay.index - 1)
+    if (e.key === 'ArrowRight') browse(replay.index + 1)
+})
+$('queue-open').addEventListener('click', () => {
+    $('queue').showModal()
+    showQueue()
 })
 
 // Le formulaire n'apparaît que si le service de soumission répond (absent en hébergement statique).
