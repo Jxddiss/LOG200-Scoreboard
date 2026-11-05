@@ -1,4 +1,5 @@
-//! `Ladder-Threads` dans le manifeste du jar : l'équipe y déclare jouer sur 2 coeur. La déclaration
+//! `Ladder-Threads` dans le manifeste du jar : `2` y déclare l'équipe multithread, sur les cœurs des
+//! slots `multithread` (leur `cpus`). La déclaration
 //! voyage avec le jar, quelle que soit la façon de le soumettre ; un jar sans l'attribut joue sur 1.
 
 use std::fs::File;

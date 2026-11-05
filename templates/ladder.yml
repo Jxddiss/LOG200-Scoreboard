@@ -22,7 +22,7 @@ concurrency:
 env:
   # true : obfusque le jar avec ProGuard avant l'envoi (voir l'etape "Obfusquer avec ProGuard").
   OBFUSCATE: false
-  # true : vos parties se jouent sur 2 coeurs par couleur (adversaire compris), mais moins souvent.
+  # true : vos parties se jouent sur plusieurs coeurs par couleur (adversaire compris), mais moins souvent.
   MULTITHREAD: false
 
 jobs:

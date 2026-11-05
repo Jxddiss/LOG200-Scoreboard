@@ -73,12 +73,12 @@ Si votre code charge des classes par leur nom (réflexion, `Class.forName`), le 
 
 Par défaut, votre bot a **1 cœur**. Des threads en plus se le partagent et ne font rien gagner.
 
-Dans `ladder.yml`, remplacer `MULTITHREAD: false` par `MULTITHREAD: true` : le jar déclare `Ladder-Threads: 2` dans son manifeste, et toutes vos parties se jouent sur **2 cœurs par couleur**. Votre adversaire a les mêmes 2 cœurs, pour que la partie reste équitable. En échange, ces parties se jouent sur un emplacement réservé, partagé avec les autres équipes multithread : vous jouez **moins souvent**, et votre classement se stabilise plus lentement. N'activez l'option que si votre bot calcule vraiment en parallèle.
+Dans `ladder.yml`, remplacer `MULTITHREAD: false` par `MULTITHREAD: true` : le jar déclare `Ladder-Threads: 2` dans son manifeste, et toutes vos parties se jouent sur **plusieurs cœurs par couleur** (4 processeurs vus par la JVM sur le ladder du cours). Votre adversaire a les mêmes cœurs, pour que la partie reste équitable. En échange, ces parties se jouent sur un emplacement réservé, partagé avec les autres équipes multithread : vous jouez **moins souvent**, et votre classement se stabilise plus lentement. N'activez l'option que si votre bot calcule vraiment en parallèle.
 
 Le smoke test, lui, se joue toujours sur 1 cœur. Calibrez donc le nombre de threads sur ce que la JVM voit, plutôt que de le coder en dur :
 
 ```java
-int threads = Runtime.getRuntime().availableProcessors(); // 1 au smoke test, 2 sur les parties multithread
+int threads = Runtime.getRuntime().availableProcessors(); // 1 au smoke test, plus sur les parties multithread
 ```
 
 La déclaration suit le jar : si la version suivante est construite avec `MULTITHREAD: false`, elle rejoue sur 1 cœur. Sans la CI, ajoutez la ligne `Ladder-Threads: 2` au manifeste vous-même (`jar --create --manifest ...`).

@@ -300,7 +300,7 @@ Le formulaire de la page fait la même chose. Le token identifie l'équipe : `is
 3. Smoke test : le jar joue une partie dans chaque couleur, dans le bac à sable, contre le bot aléatoire. Il peut perdre, mais pas par dépassement de temps, déconnexion, absence ou coups invalides. Il attend la fin de la partie en cours du ladder : compter jusqu'à une ou deux minutes.
 4. S'il passe, il remplace atomiquement `jars/<équipe>/current.jar` (l'ancien est supprimé) et joue dès la partie suivante. Une équipe inscrite entre au classement avec son premier jar accepté.
 
-Un jar `Ladder-Threads: 2` joue toutes ses parties dans un slot `multithread`, avec 2 cœurs par couleur, adversaire compris. Ces slots étant moins nombreux, ses parties sont moins fréquentes. Le smoke test, lui, se joue sur 1 cœur. La déclaration suit le jar : la version suivante, sans l'attribut, rejoue sur 1 cœur.
+Un jar `Ladder-Threads: 2` joue toutes ses parties dans un slot `multithread`, avec les cœurs de ce slot (son `cpus`) par couleur, adversaire compris. Ces slots étant moins nombreux, ses parties sont moins fréquentes. Le smoke test, lui, se joue sur 1 cœur. La déclaration suit le jar : la version suivante, sans l'attribut, rejoue sur 1 cœur.
 
 | Code | Sens |
 | --- | --- |

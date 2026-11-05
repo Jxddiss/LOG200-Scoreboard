@@ -36,7 +36,7 @@ impl fmt::Display for Accepted {
             Self::Installed { hash, multithread } => {
                 write!(f, "accepté : version {hash}, en jeu dès la prochaine partie")?;
                 if *multithread {
-                    f.write_str(" (Ladder-Threads: 2 : 2 coeurs par couleur, adversaire compris)")?;
+                    f.write_str(" (Ladder-Threads: 2 : plusieurs coeurs par couleur, adversaire compris)")?;
                 }
                 Ok(())
             }
