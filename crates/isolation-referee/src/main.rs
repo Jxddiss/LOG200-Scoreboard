@@ -35,6 +35,9 @@ struct Cli {
     /// Délai de connexion, pour chaque joueur.
     #[arg(long, default_value_t = 30_000)]
     connect_timeout_ms: u64,
+    /// Tolérance ajoutée au premier coup de chaque joueur, le temps d'une JVM à froid.
+    #[arg(long, default_value_t = 1000)]
+    first_move_grace_ms: u64,
     #[arg(long, default_value = "127.0.0.1")]
     bind: String,
 }
@@ -76,6 +79,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 board,
                 players,
                 time: Duration::from_millis(cli.time_ms),
+                first_move_grace: Duration::from_millis(cli.first_move_grace_ms),
                 max_invalid: cli.max_invalid,
                 moves: Vec::new(),
                 move_ms: Vec::new(),
@@ -210,6 +214,11 @@ fn accept(listener: &TcpListener, deadline: Instant) -> std::io::Result<Option<T
     }
 }
 
+/// `played` ne compte que les coups des clients : le rouge joue le coup 0, le noir le coup 1.
+fn allowed(time: Duration, grace: Duration, played: usize) -> Duration {
+    if played < 2 { time + grace } else { time }
+}
+
 struct Verdict {
     winner: Color,
     reason: Reason,
@@ -219,6 +228,7 @@ struct Referee {
     board: Board,
     players: ByColor<LineConn>,
     time: Duration,
+    first_move_grace: Duration,
     max_invalid: u32,
     moves: Vec<Move>,
     move_ms: Vec<u64>,
@@ -275,7 +285,7 @@ impl Referee {
 
     /// Premier coup légal de `turn` avant l'échéance ; chaque coup refusé est répondu par `4`.
     fn receive_move(&mut self, turn: Color) -> Result<Move, Reason> {
-        let deadline = Instant::now() + self.time;
+        let deadline = Instant::now() + allowed(self.time, self.first_move_grace, self.moves.len());
         loop {
             let line = match self.players[turn].recv(Some(deadline)) {
                 Ok(line) => line,
@@ -311,5 +321,19 @@ impl Referee {
             self.send(color, ServerMsg::End { outcome, last: None });
         }
         Verdict { winner, reason }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_each_players_first_move_gets_the_grace() {
+        let (time, grace) = (Duration::from_millis(500), Duration::from_millis(1000));
+        let with_grace = Duration::from_millis(1500);
+        assert_eq!(allowed(time, grace, 0), with_grace);
+        assert_eq!(allowed(time, grace, 1), with_grace);
+        assert_eq!(allowed(time, grace, 2), time);
     }
 }
