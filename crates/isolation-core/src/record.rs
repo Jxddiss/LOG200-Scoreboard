@@ -187,9 +187,12 @@ fn parse_line(line: &str) -> Result<GameRecord, SkipReason> {
     }
 }
 
-/// Heure courante en RFC 3339 UTC, à la milliseconde.
 pub fn now_rfc3339() -> String {
-    let elapsed = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    rfc3339_at(SystemTime::now())
+}
+
+pub fn rfc3339_at(time: SystemTime) -> String {
+    let elapsed = time.duration_since(UNIX_EPOCH).unwrap_or_default();
     rfc3339(
         i64::try_from(elapsed.as_secs()).unwrap_or(i64::MAX),
         elapsed.subsec_millis(),
