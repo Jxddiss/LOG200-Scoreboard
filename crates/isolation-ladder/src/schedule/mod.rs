@@ -1,6 +1,7 @@
 //! Choix des paires : chaque équipe reçoit la même part des parties, contre un adversaire de
 //! niveau voisin, de préférence peu affronté. L'état se reconstruit depuis l'historique de la session.
 
+mod announce;
 mod queue;
 
 use std::collections::{HashMap, HashSet};
@@ -15,6 +16,7 @@ use isolation_core::record::GameRecord;
 
 use crate::roster::Team;
 use crate::store::write_atomic;
+pub use announce::Announcements;
 use queue::FairQueue;
 
 const MAX_GAP: f64 = 600.0;
@@ -44,6 +46,7 @@ struct Queued<'a> {
 struct QueueFile<'a> {
     v: u32,
     teams: Vec<Queued<'a>>,
+    next: &'a Announcements,
 }
 
 pub struct Scheduler {
@@ -86,8 +89,8 @@ impl Scheduler {
         self.last.insert(b.to_string(), a.to_string());
     }
 
-    /// Publie la file des équipes de `roster` dans `queue.json` (format dans docs/formats.md).
-    pub fn publish(&self, dir: &Path, roster: &[Team]) -> io::Result<()> {
+    /// Publie la file des équipes de `roster` et les paires annoncées dans `queue.json` (format dans docs/formats.md).
+    pub fn publish(&self, dir: &Path, roster: &[Team], next: &Announcements) -> io::Result<()> {
         let present: HashSet<&str> = roster.iter().map(|t| t.id.as_str()).collect();
         let clock = i64::from(self.queue.clock());
         let teams = self
@@ -102,7 +105,7 @@ impl Scheduler {
             .collect();
         write_atomic(
             &dir.join("queue.json"),
-            &serde_json::to_vec(&QueueFile { v: 1, teams })?,
+            &serde_json::to_vec(&QueueFile { v: 1, teams, next })?,
         )
     }
 
@@ -466,7 +469,7 @@ mod tests {
             scheduler.record(a, b, 2);
         }
         let roster = [team("d"), team("a"), team("b"), bot("e")];
-        scheduler.publish(&dir, &roster).unwrap();
+        scheduler.publish(&dir, &roster, &Announcements::default()).unwrap();
         let file: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(dir.join("queue.json")).unwrap()).unwrap();
         assert_eq!(
@@ -476,7 +479,7 @@ mod tests {
                 { "id": "a", "ahead": 2, "bot": false },
                 { "id": "b", "ahead": 2, "bot": false },
                 { "id": "e", "ahead": 2, "bot": true },
-            ]})
+            ], "next": [] })
         );
         let _ = std::fs::remove_dir_all(&dir);
     }

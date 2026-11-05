@@ -28,15 +28,15 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Sender};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use rand::RngExt;
+use rand::{Rng, RngExt};
 
 use isolation_core::board::Move;
 use isolation_core::notation;
-use isolation_core::record::{GameRecord, Jsonl, TournamentGame};
+use isolation_core::record::{GameRecord, Jsonl, TournamentGame, rfc3339_at};
 use isolation_core::rules::random_opening;
 
 use arena::{Arena, Fixture, GameError, Sigterm};
@@ -45,7 +45,7 @@ use hub::Hub;
 use live::Live;
 use remote::Registry;
 use roster::{Team, multithread_game, roster};
-use schedule::Scheduler;
+use schedule::{Announcements, Scheduler};
 use standings::Standings;
 use store::append_jsonl;
 use team_id::TeamId;
@@ -148,7 +148,7 @@ fn run(path: &Path, rounds: Option<u64>) -> anyhow::Result<()> {
     let history = fs::read_to_string(&cfg.out)
         .map(|text| Jsonl::parse(&text))
         .unwrap_or_default();
-    let mut scheduler = Scheduler::from_history(&history.games, &cfg.session);
+    let scheduler = Scheduler::from_history(&history.games, &cfg.session);
     let mut standings = Standings::from_history(cfg.data_dir(), &history.games, &history.at)
         .with_context(|| cfg.data_dir().display().to_string())?;
     let mut tournaments = Organizer::new(&cfg, rounds.is_none(), &history.games)?;
@@ -166,51 +166,41 @@ fn run(path: &Path, rounds: Option<u64>) -> anyhow::Result<()> {
     let cfg = arena.config();
 
     let mut rng = rand::rng();
-    let mut round = 0;
     let mut waiting = false;
     let mut warned = HashSet::new();
-    // Paires en cours, par genre de slot (ordinaire, multithread).
-    let mut running = [0; 2];
-    let mut busy = HashSet::new();
+    let mut pairs = Pairs::new(scheduler);
     loop {
-        if !arena.draining() && rounds.is_none_or(|n| round < n) {
+        if !arena.draining() && rounds.is_none_or(|n| pairs.round < n) {
             tournaments.tick(cfg, &standings, rng.random());
             tournaments.poll(cfg, &standings, rng.random());
-            launch_tournament(&arena, &mut tournaments, &mut busy, &mut running, &reports);
-            if running.iter().sum::<usize>() < cfg.slots() {
-                let teams = roster(cfg, remote.as_ref(), &mut warned);
-                let waiting_teams = tournaments.waiting();
-                let unavailable: HashSet<String> = busy.union(&waiting_teams).cloned().collect();
+            launch_tournament(&arena, &mut tournaments, &mut pairs.busy, &mut pairs.running, &reports);
+            let teams = roster(cfg, remote.as_ref(), &mut warned);
+            let waiting_teams = tournaments.waiting();
+            pairs.cancel_stale(cfg, &teams, &waiting_teams);
+            pairs.launch_announced(&arena, &teams, &reports, &mut rng);
+            if pairs.running.iter().sum::<usize>() < cfg.slots() && pairs.open(rounds) {
+                let unavailable = pairs.unavailable(&waiting_teams, None);
+                let running = pairs.running;
                 let fits = |a: &Team, b: &Team| {
                     let multithread = multithread_game(cfg, a, b);
                     running[usize::from(multithread)] < cfg.slots_of(multithread)
                 };
                 if let Some((a, b)) =
-                    scheduler.next_pair(&teams, &unavailable, fits, |id| standings.rating(id), &mut rng)
+                    pairs
+                        .scheduler
+                        .next_pair(&teams, &unavailable, fits, |id| standings.rating(id), &mut rng)
                 {
                     waiting = false;
-                    round += 1;
-                    running[usize::from(multithread_game(cfg, a, b))] += 1;
-                    scheduler.record(&a.id, &b.id, 2);
-                    let queued = scheduler.publish(cfg.data_dir(), &teams);
-                    queued.unwrap_or_else(|e| eprintln!("   file d'attente non publiée : {e}"));
-                    busy.extend([a.id.clone(), b.id.clone()]);
-                    let opening = random_opening(cfg.opening_plies, &mut rng);
-                    eprintln!(
-                        "== paire {round} : {} contre {} (ouverture {})",
-                        a.id,
-                        b.id,
-                        notation::join(&opening)
-                    );
-                    spawn_pair(Arc::clone(&arena), a.clone(), b.clone(), opening, reports.clone());
+                    let pair = [a.clone(), b.clone()];
+                    pairs.launch(&arena, &teams, pair, &reports, &mut rng);
                     continue;
                 }
-                if running == [0; 2] && !waiting {
+                if pairs.running == [0; 2] && !waiting {
                     eprintln!("en attente d'au moins deux équipes ({} pour l'instant)", teams.len());
                     waiting = true;
                 }
             }
-        } else if running == [0; 2] && arena.smoke_tests() == 0 {
+        } else if pairs.running == [0; 2] && arena.smoke_tests() == 0 {
             break;
         }
         let Ok(report) = received.recv_timeout(IDLE_DELAY) else {
@@ -233,17 +223,143 @@ fn run(path: &Path, rounds: Option<u64>) -> anyhow::Result<()> {
                     tournaments.record(cfg, &game, saved.as_ref());
                 }
             }
-            Report::Done { pair, multithread } => {
-                running[usize::from(multithread)] -= 1;
-                for id in &pair {
-                    busy.remove(id);
+            Report::Resting(rest) => {
+                if !arena.draining() && pairs.open(rounds) {
+                    let teams = roster(cfg, remote.as_ref(), &mut warned);
+                    let rating = |id: &str| standings.rating(id);
+                    pairs.announce(cfg, &teams, &tournaments.waiting(), rest, rating, &mut rng);
                 }
+            }
+            Report::Done { pair, multithread } => {
+                pairs.done(&pair, multithread);
                 prune_logs(&logs, LOG_RETENTION);
             }
         }
     }
     hub.shutdown();
     Ok(())
+}
+
+/// Paires du ladder : slots occupés, équipes prises et paires annoncées pendant la pause d'un slot.
+struct Pairs {
+    scheduler: Scheduler,
+    /// Paires en cours, par genre de slot (ordinaire, multithread), pause comprise.
+    running: [usize; 2],
+    busy: HashSet<String>,
+    announced: Announcements,
+    round: u64,
+}
+
+impl Pairs {
+    fn new(scheduler: Scheduler) -> Self {
+        Self {
+            scheduler,
+            running: [0; 2],
+            busy: HashSet::new(),
+            announced: Announcements::default(),
+            round: 0,
+        }
+    }
+
+    /// Une paire de plus tient dans `rounds`, annonces comprises.
+    fn open(&self, rounds: Option<u64>) -> bool {
+        let announced = u64::try_from(self.announced.len()).unwrap_or(u64::MAX);
+        rounds.is_none_or(|n| self.round.saturating_add(announced) < n)
+    }
+
+    /// Équipes hors tirage. `resting` : la paire en pause dont le slot est à pourvoir, comptée libre.
+    fn unavailable(&self, waiting: &HashSet<String>, resting: Option<&[String; 2]>) -> HashSet<String> {
+        let busy = self
+            .busy
+            .iter()
+            .filter(|id| resting.is_none_or(|pair| !pair.contains(id)));
+        busy.chain(waiting)
+            .cloned()
+            .chain(self.announced.teams().map(String::from))
+            .collect()
+    }
+
+    fn publish(&self, cfg: &Config, teams: &[Team]) {
+        let queued = self.scheduler.publish(cfg.data_dir(), teams, &self.announced);
+        queued.unwrap_or_else(|e| eprintln!("   file d'attente non publiée : {e}"));
+    }
+
+    fn launch(
+        &mut self,
+        arena: &Arc<Arena>,
+        teams: &[Team],
+        [a, b]: [Team; 2],
+        reports: &Sender<Report>,
+        rng: &mut impl Rng,
+    ) {
+        let cfg = arena.config();
+        self.round += 1;
+        self.running[usize::from(multithread_game(cfg, &a, &b))] += 1;
+        self.scheduler.record(&a.id, &b.id, 2);
+        self.busy.extend([a.id.clone(), b.id.clone()]);
+        self.publish(cfg, teams);
+        let opening = random_opening(cfg.opening_plies, rng);
+        eprintln!(
+            "== paire {} : {} contre {} (ouverture {})",
+            self.round,
+            a.id,
+            b.id,
+            notation::join(&opening)
+        );
+        spawn_pair(Arc::clone(arena), a, b, opening, reports.clone());
+    }
+
+    /// Tire la paire qui prendra le slot de `rest` à la fin de sa pause, et l'annonce.
+    fn announce(
+        &mut self,
+        cfg: &Config,
+        teams: &[Team],
+        waiting: &HashSet<String>,
+        rest: Rest,
+        rating: impl Fn(&str) -> f64,
+        rng: &mut impl Rng,
+    ) {
+        let unavailable = self.unavailable(waiting, Some(&rest.pair));
+        let fits = |a: &Team, b: &Team| multithread_game(cfg, a, b) == rest.multithread;
+        let Some((a, b)) = self.scheduler.next_pair(teams, &unavailable, fits, rating, rng) else {
+            return;
+        };
+        eprintln!("   annonce : {} contre {} à {}", a.id, b.id, rest.at);
+        let pair = [a.clone(), b.clone()];
+        self.announced.add(rest.pair, rest.multithread, pair, rest.at);
+        self.publish(cfg, teams);
+    }
+
+    fn cancel_stale(&mut self, cfg: &Config, teams: &[Team], waiting: &HashSet<String>) {
+        if self.announced.cancel_stale(teams, &self.busy, waiting) {
+            eprintln!("   annonce annulée : nouveau jar, équipe absente ou tournoi");
+            self.publish(cfg, teams);
+        }
+    }
+
+    /// Lance les annonces dont la pause est finie, sauf si un tournoi a pris leur slot.
+    fn launch_announced(&mut self, arena: &Arc<Arena>, teams: &[Team], reports: &Sender<Report>, rng: &mut impl Rng) {
+        let cfg = arena.config();
+        for (pair, multithread) in self.announced.take_ready() {
+            if self.running[usize::from(multithread)] < cfg.slots_of(multithread) {
+                self.launch(arena, teams, pair, reports, rng);
+            } else {
+                eprintln!(
+                    "   annonce {} contre {} annulée : slot pris par le tournoi",
+                    pair[0].id, pair[1].id
+                );
+                self.publish(cfg, teams);
+            }
+        }
+    }
+
+    fn done(&mut self, pair: &[String; 2], multithread: bool) {
+        self.running[usize::from(multithread)] -= 1;
+        for id in pair {
+            self.busy.remove(id);
+        }
+        self.announced.rested(pair);
+    }
 }
 
 fn published(written: io::Result<()>) {
@@ -320,10 +436,18 @@ enum Report {
         outcome: Result<GameRecord, GameError>,
         game: Option<TournamentGame>,
     },
+    /// Les deux parties de la paire sont jouées : son slot entre en pause jusqu'à `at`.
+    Resting(Rest),
     Done {
         pair: [String; 2],
         multithread: bool,
     },
+}
+
+struct Rest {
+    pair: [String; 2],
+    multithread: bool,
+    at: String,
 }
 
 /// Registre des équipes distantes, si `[remote]` est configuré : il réveille la boucle à chaque arrivée.
@@ -362,7 +486,13 @@ fn spawn_pair(arena: Arc<Arena>, a: Team, b: Team, opening: Vec<Move>, reports: 
             }
         }
         if !arena.draining() {
-            thread::sleep(Duration::from_secs(arena.config().pause_s));
+            let pause = Duration::from_secs(arena.config().pause_s);
+            let _ = reports.send(Report::Resting(Rest {
+                pair: [a.id.clone(), b.id.clone()],
+                multithread: multithread_game(arena.config(), &a, &b),
+                at: rfc3339_at(SystemTime::now() + pause),
+            }));
+            thread::sleep(pause);
         }
         report_done(&arena, &reports, a, b);
     });
@@ -453,6 +583,46 @@ mod tests {
         prune_logs(&dir, LOG_RETENTION);
         assert!(!old.exists());
         assert!(new.exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_resting_pair_counts_free_and_the_announcement_waits_for_its_slot() {
+        use rand::SeedableRng;
+        let dir = std::env::temp_dir().join(format!("isolation-announce-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let teams = ["a", "b", "c", "d"]
+            .map(|id| format!("[[team]]\nid = \"{id}\"\ncmd = [\"bot\"]\n"))
+            .concat();
+        let toml = format!(
+            "referee = [\"r\"]\ntime_ms = 100\nsession = \"s\"\nout = {out:?}\n{teams}",
+            out = dir.join("games.jsonl")
+        );
+        let cfg: Config = toml.parse().unwrap();
+        let teams = roster(&cfg, None, &mut HashSet::new());
+        for seed in 0..20 {
+            let mut pairs = Pairs::new(Scheduler::default());
+            pairs.scheduler.record("a", "b", 2);
+            pairs.busy.extend(["a", "b", "c"].map(String::from));
+            pairs.running = [2, 0];
+            let rest = Rest {
+                pair: ["a".into(), "b".into()],
+                multithread: false,
+                at: "2026-11-05T12:01:00.000Z".into(),
+            };
+            let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+            pairs.announce(&cfg, &teams, &HashSet::new(), rest, |_| 1500.0, &mut rng);
+            let announced: Vec<&str> = pairs.announced.teams().collect();
+            assert!(announced.contains(&"d") && !announced.contains(&"c"), "{announced:?}");
+            let unavailable = pairs.unavailable(&HashSet::new(), None);
+            assert!(announced.iter().all(|id| unavailable.contains(*id)));
+            let file: serde_json::Value =
+                serde_json::from_str(&fs::read_to_string(dir.join("queue.json")).unwrap()).unwrap();
+            assert_eq!(file["next"][0]["teams"], serde_json::json!(announced));
+            assert!(pairs.announced.take_ready().is_empty());
+            pairs.done(&["a".into(), "b".into()], false);
+            assert_eq!(pairs.announced.take_ready().len(), 1);
+        }
         let _ = fs::remove_dir_all(&dir);
     }
 

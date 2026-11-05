@@ -31,6 +31,7 @@ startup_ms = 1000
 # game_timeout_s = 300
 
 # Pause entre deux paires, en secondes. 0 (par defaut) : les parties s'enchainent.
+# La paire suivante du slot est tiree au debut de la pause et annoncee dans data/queue.json.
 # pause_s = 60
 
 # Lancee apres chaque partie, meme en echec, avec l'id de la partie dans {game}. Aussi lancee au
