@@ -208,29 +208,56 @@
         </section>
     </main>
 
-    <dialog id="queue" class="queue" aria-labelledby="queue-title">
-        <div class="queue-head">
-            <h2 id="queue-title">File d'attente</h2>
-            <form method="dialog"><button class="share" type="submit">Fermer</button></form>
+    <dialog id="queue" class="queue" aria-labelledby="queue-title" aria-describedby="queue-lede">
+        <header class="queue-head">
+            <div>
+                <h2 id="queue-title">File d'attente</h2>
+                <p id="queue-lede" class="queue-lede" aria-live="polite"></p>
+            </div>
+            <form method="dialog">
+                <button class="icon queue-close" type="submit" aria-label="Fermer la file d'attente">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M6 6l12 12M18 6L6 18" />
+                    </svg>
+                </button>
+            </form>
+        </header>
+        <div id="queue-tree" class="queue-tree" tabindex="0" aria-label="Arbre de la file d'attente"></div>
+        <div class="queue-foot">
+            <dl class="queue-key">
+                <div>
+                    <dt><svg viewBox="0 0 34 22" aria-hidden="true"><g class="node team next"><rect x="1" y="1" width="32" height="20" rx="4" /></g></svg></dt>
+                    <dd>Prochaine à jouer, au bout du tracé rouge</dd>
+                </div>
+                <div>
+                    <dt><svg viewBox="0 0 34 22" aria-hidden="true"><g class="node team"><rect x="1" y="1" width="32" height="20" rx="4" /></g></svg></dt>
+                    <dd>Équipe</dd>
+                </div>
+                <div>
+                    <dt><svg viewBox="0 0 34 22" aria-hidden="true"><g class="node bot"><rect x="1" y="1" width="32" height="20" rx="4" /></g></svg></dt>
+                    <dd>Bot, qui avance deux fois plus vite</dd>
+                </div>
+                <div>
+                    <dt><svg viewBox="0 0 34 22" aria-hidden="true"><g class="node team busy"><rect x="1" y="1" width="32" height="20" rx="4" /><circle class="pawn red" cx="9" cy="11" r="5" /><circle class="pawn black" cx="24" cy="11" r="5" /></g></svg></dt>
+                    <dd>En partie, avec son pion</dd>
+                </div>
+                <div>
+                    <dt><span class="queue-sample">+2</span></dt>
+                    <dd>Avance sur l'horloge de la file, en parties</dd>
+                </div>
+            </dl>
+            <div class="queue-notes">
+                <p>
+                    Chaque paire lancée fait avancer ses deux équipes de 2, un bot de 4. Une nouvelle équipe
+                    entre tout à gauche. La file dit qui joue bientôt, pas contre qui : l'adversaire dépend
+                    de l'Elo, du dernier adversaire et du hasard entre ex æquo.
+                </p>
+                <p class="queue-fine">
+                    Arbre binaire calculé pour l'affichage, dans l'ordre de la file. En mémoire, la file est
+                    un B-tree plat.
+                </p>
+            </div>
         </div>
-        <div id="queue-tree" class="queue-tree"></div>
-        <ul class="queue-key">
-            <li><span class="swatch on">▲</span>Tête de file : la prochaine équipe à jouer, au bout du chemin rouge.</li>
-            <li><span class="swatch">←→</span>À gauche, en retard ; à droite, en avance.</li>
-            <li><span class="swatch">+n</span>Parties d'avance sur l'horloge de la file.</li>
-            <li><span class="swatch team"></span>Équipe</li>
-            <li><span class="swatch bot"></span>Bot, qui avance deux fois plus vite</li>
-            <li><span class="swatch team busy"></span>En partie</li>
-        </ul>
-        <p class="queue-help">
-            Chaque paire lancée fait avancer ses deux équipes de 2 (un bot de 4). Une nouvelle équipe entre
-            tout à gauche. La file dit qui joue bientôt, pas contre qui : l'adversaire dépend de l'Elo, du
-            dernier adversaire et du hasard entre ex æquo.
-        </p>
-        <p class="queue-note">
-            Arbre binaire calculé pour l'affichage, dans l'ordre de la file. En mémoire, la file est un
-            B-tree plat.
-        </p>
     </dialog>
 </body>
 

@@ -34,7 +34,7 @@ import { fetchModel, percent, winProbability } from './predict.js'
 import { renderBoard } from './board.js'
 import { connectLive, liveUrl, pickLive } from './live.js'
 import { positions, squareName } from './replay.js'
-import { drawQueue } from './queue.js'
+import { createQueueView } from './queue.js'
 
 const RECENT_GAMES = 50
 const PLAY_MS = 500
@@ -154,18 +154,13 @@ async function fetchRunning() {
     return res.ok ? (await res.json()).games : []
 }
 
-// Absent avec un ladder qui ne publie pas encore queue.json : le panneau le dit.
+const queueView = createQueueView({ tree: $('queue-tree'), lede: $('queue-lede') })
+
+// Absent avec un ladder qui ne publie pas encore queue.json : `null`, et le panneau le dit.
 async function showQueue() {
     const res = await fetch(`${DATA}/queue.json`, { cache: 'no-store' }).catch(() => null)
     const teams = res?.ok ? await res.json().then((file) => file.teams, () => null) : null
-    const busy = new Set(running.flatMap((g) => [g.red, g.black]))
-    $('queue-tree').replaceChildren(
-        teams === null
-            ? el('p', { class: 'queue-help' }, "Ce ladder ne publie pas encore sa file d'attente.")
-            : teams.length
-              ? drawQueue(teams, busy)
-              : el('p', { class: 'queue-help' }, 'File vide.'),
-    )
+    queueView.show(teams, running)
 }
 
 const teamUrl = (team) => `${DATA}/teams/${encodeURIComponent(team)}.jsonl`
@@ -820,15 +815,16 @@ $('step').addEventListener('input', (e) => browse(+e.target.value))
 let typed = ''
 document.addEventListener('keydown', (e) => {
     if (e.target.closest('input, select, textarea, [contenteditable], [role="slider"]')) return
-    if (e.key === 'ArrowLeft') browse(replay.index - 1)
-    if (e.key === 'ArrowRight') browse(replay.index + 1)
+    const queue = $('queue')
+    if (e.key === 'ArrowLeft' && !queue.open) browse(replay.index - 1)
+    if (e.key === 'ArrowRight' && !queue.open) browse(replay.index + 1)
     if (e.key.length !== 1 || e.ctrlKey || e.metaKey || e.altKey) return
     typed = (typed + e.key.toLowerCase()).slice(-4)
     if (typed !== 'file') return
     typed = ''
-    const queue = $('queue')
     if (queue.open) queue.close()
     else {
+        queueView.reset()
         queue.showModal()
         showQueue()
     }

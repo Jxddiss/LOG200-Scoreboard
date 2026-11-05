@@ -2131,140 +2131,345 @@ p.graph-link:hover {
     }
 }
 
-/* --- File d'attente (easter egg : taper « file ») ----------------------------------------- */
+/* --- File d'attente (easter egg : taper « file ») -------------------------------------------
+   L'arbre parle la langue du plateau : une équipe est une case, un bot une case vide, la prochaine
+   à jouer prend le rouge du trait, et une équipe en partie porte son pion. */
 
 .queue {
-    width: min(1100px, calc(100vw - 32px));
+    width: min(1120px, calc(100vw - 32px));
     max-height: calc(100dvh - 32px);
     margin: auto;
-    padding: 14px 16px;
+    padding: 0;
+    overflow: auto;
     background: var(--surface);
     color: var(--ink);
     border: 1px solid var(--line);
     border-radius: var(--radius);
+    box-shadow: 0 24px 60px -24px rgb(0 0 0 / 0.45);
+}
+
+.queue[open] {
+    animation: queue-open 220ms cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
 .queue::backdrop {
-    background: color-mix(in srgb, var(--paper) 70%, transparent);
+    background: color-mix(in srgb, var(--paper) 72%, transparent);
+    backdrop-filter: blur(3px);
 }
 
 .queue-head {
     display: flex;
-    align-items: center;
-    margin-bottom: 10px;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 20px 0;
+}
+
+.queue-head h2 {
+    font-size: clamp(1.25rem, 1rem + 1vw, 1.6rem);
+    font-weight: 850;
+    font-stretch: 118%;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+}
+
+.queue-lede {
+    max-width: 64ch;
+    margin-top: 6px;
+    color: var(--muted);
+    min-height: 1.45em;
+}
+
+.queue-lede strong {
+    color: var(--ink);
+    font-weight: 650;
+}
+
+.queue-close svg {
+    fill: none;
+    stroke-linecap: round;
 }
 
 .queue-tree {
+    margin-top: 14px;
+    padding: 6px 20px 4px;
     overflow-x: auto;
-    padding-bottom: 6px;
     scrollbar-width: thin;
     scrollbar-color: var(--line) transparent;
+}
+
+.queue-tree:focus-visible {
+    outline-offset: -2px;
 }
 
 .queue-tree svg {
     display: block;
     margin: 0 auto;
-    font-size: 11px;
+    overflow: visible;
 }
 
+.queue-empty {
+    padding: 48px 0;
+    color: var(--muted);
+    text-align: center;
+}
+
+/* Arêtes et tracé */
+
 .queue .edge {
-    stroke: var(--line);
+    fill: none;
+    stroke: color-mix(in srgb, var(--muted) 45%, transparent);
     stroke-width: 1.5;
 }
 
-.queue .edge.on {
+.queue .trail {
+    fill: none;
     stroke: var(--red);
-    stroke-width: 2.5;
+    stroke-width: 3;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.queue .axis {
+    fill: none;
+    stroke: var(--line);
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.queue .axis-label {
+    fill: var(--muted);
+    font-size: 11px;
+}
+
+.queue .axis-label.end {
+    text-anchor: end;
+}
+
+/* Cases */
+
+.queue .node {
+    transition: transform 650ms cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
 .queue .node rect {
-    fill: var(--paper);
-    stroke: var(--muted);
-    stroke-width: 1.2;
+    fill: var(--tile);
 }
 
 .queue .node.bot rect {
-    stroke-dasharray: 4 3;
+    fill: none;
+    stroke: color-mix(in srgb, var(--muted) 75%, transparent);
+    stroke-width: 1.5;
 }
 
-.queue .node.on rect {
+.queue .node.path rect {
     stroke: var(--red);
     stroke-width: 2;
 }
 
-.queue .node.busy {
-    opacity: 0.4;
+.queue .node.next rect {
+    fill: var(--red);
+    stroke: var(--red);
+}
+
+.queue .node.busy> :not(.pawn, title) {
+    opacity: 0.45;
 }
 
 .queue .node text {
     fill: var(--ink);
     text-anchor: middle;
-    font-weight: 600;
+    pointer-events: none;
+}
+
+.queue .node .name {
+    font-size: 12px;
+    font-weight: 650;
+    font-stretch: 88%;
 }
 
 .queue .node .ahead {
     fill: var(--muted);
-    font-weight: 400;
-    font-variant-numeric: tabular-nums;
+    font-size: 10.5px;
 }
 
-.queue .node .mark {
+.queue .node.next .name,
+.queue .node.next .ahead {
+    fill: var(--red-ink);
+}
+
+/* Le halo garde l'étiquette lisible quand une arête descend sous une prochaine qui n'est pas une feuille. */
+.queue .node .next-label {
+    fill: var(--red);
+    stroke: var(--surface);
+    stroke-width: 4px;
+    paint-order: stroke;
+    font-size: 11px;
+    font-weight: 650;
+}
+
+.queue .pawn.red {
     fill: var(--red);
 }
 
-.queue-key {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px 18px;
-    margin: 10px 0 0;
-    padding: 0;
-    list-style: none;
+.queue .pawn.black {
+    fill: var(--pawn-black);
+    stroke: var(--pawn-rim);
+    stroke-width: 1.5;
+}
+
+/* Entrée : l'arbre pousse niveau par niveau, le tracé descend, puis la prochaine case s'allume. */
+
+.queue svg.enter .node {
+    animation: queue-rise 360ms cubic-bezier(0.2, 0.7, 0.2, 1) calc(var(--d) * 90ms) backwards;
+}
+
+.queue svg.enter .edge {
+    stroke-dasharray: 1;
+    animation: queue-draw 380ms ease-out calc(var(--d) * 90ms + 120ms) backwards;
+}
+
+.queue svg.enter .trail {
+    stroke-dasharray: 1;
+    animation: queue-draw 480ms cubic-bezier(0.6, 0, 0.3, 1) var(--trail) backwards;
+}
+
+.queue svg.enter .node.next rect {
+    animation: queue-ignite 260ms ease-out var(--ignite) backwards;
+}
+
+.queue svg.enter .node.next text {
+    animation: queue-ignite-text 260ms ease-out var(--ignite) backwards;
+}
+
+/* Mise à jour : les cases glissent ; arêtes et nouvelles cases arrivent une fois en place. */
+
+.queue svg.moving .edges,
+.queue svg.moving .trail,
+.queue svg .node.fresh {
+    animation: queue-fade 300ms ease-out 450ms backwards;
+}
+
+@keyframes queue-open {
+    from {
+        opacity: 0;
+        transform: translateY(8px) scale(0.985);
+    }
+}
+
+@keyframes queue-rise {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+}
+
+@keyframes queue-draw {
+    from {
+        stroke-dashoffset: 1;
+    }
+}
+
+@keyframes queue-ignite {
+    from {
+        fill: var(--tile);
+        stroke: var(--red);
+    }
+}
+
+@keyframes queue-ignite-text {
+    from {
+        fill: var(--ink);
+    }
+}
+
+@keyframes queue-fade {
+    from {
+        opacity: 0;
+    }
+}
+
+/* Légende et notes */
+
+.queue-foot {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 16px 32px;
+    margin-top: 8px;
+    padding: 16px 20px 20px;
+    border-top: 1px solid var(--line);
     font-size: 0.8125rem;
 }
 
-.queue-key li {
-    display: flex;
-    align-items: center;
-    gap: 6px;
+.queue-key {
+    display: grid;
+    gap: 8px;
+    margin: 0;
 }
 
-.queue-key .swatch {
-    display: inline-grid;
+.queue-key>div {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+}
+
+.queue-key dt {
+    display: grid;
     place-items: center;
-    min-width: 1.75rem;
-    height: 1.1rem;
-    padding: 0 4px;
-    border-radius: 4px;
+}
+
+.queue-key dd {
+    margin: 0;
+}
+
+.queue-key svg {
+    display: block;
+    width: 34px;
+    height: 22px;
+}
+
+.queue-sample {
     color: var(--muted);
     font-size: 0.75rem;
+    -webkit-user-select: none;
     user-select: none;
 }
 
-.queue-key .swatch.team,
-.queue-key .swatch.bot {
-    background: var(--paper);
-    border: 1.2px solid var(--muted);
-}
-
-.queue-key .swatch.bot {
-    border-style: dashed;
-}
-
-.queue-key .swatch.busy {
-    opacity: 0.4;
-}
-
-.queue-key .swatch.on {
-    color: var(--red);
-}
-
-.queue-help,
-.queue-note {
-    margin: 8px 0 0;
+.queue-notes {
+    display: grid;
+    align-content: start;
+    gap: 10px;
+    max-width: 62ch;
     color: var(--muted);
-    font-size: 0.8125rem;
 }
 
-.queue-note {
+.queue-fine {
     font-size: 0.75rem;
+}
+
+@media (max-width: 720px) {
+    .queue-head,
+    .queue-tree,
+    .queue-foot {
+        padding-inline: 16px;
+    }
+
+    .queue-foot {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .queue[open],
+    .queue svg .node,
+    .queue svg .edge,
+    .queue svg .edges,
+    .queue svg .trail,
+    .queue svg .node rect,
+    .queue svg .node text {
+        animation: none;
+        transition: none;
+    }
 }
