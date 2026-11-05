@@ -36,7 +36,7 @@ struct Cli {
     #[arg(long, default_value_t = 30_000)]
     connect_timeout_ms: u64,
     /// Tolérance ajoutée au premier coup de chaque joueur, le temps d'une JVM à froid.
-    #[arg(long, default_value_t = 1000)]
+    #[arg(long, default_value_t = 100)]
     first_move_grace_ms: u64,
     #[arg(long, default_value = "127.0.0.1")]
     bind: String,
