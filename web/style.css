@@ -2130,3 +2130,141 @@ p.graph-link:hover {
         transition: none;
     }
 }
+
+/* --- File d'attente (easter egg : taper « file ») ----------------------------------------- */
+
+.queue {
+    width: min(1100px, calc(100vw - 32px));
+    max-height: calc(100dvh - 32px);
+    margin: auto;
+    padding: 14px 16px;
+    background: var(--surface);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+}
+
+.queue::backdrop {
+    background: color-mix(in srgb, var(--paper) 70%, transparent);
+}
+
+.queue-head {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.queue-tree {
+    overflow-x: auto;
+    padding-bottom: 6px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--line) transparent;
+}
+
+.queue-tree svg {
+    display: block;
+    margin: 0 auto;
+    font-size: 11px;
+}
+
+.queue .edge {
+    stroke: var(--line);
+    stroke-width: 1.5;
+}
+
+.queue .edge.on {
+    stroke: var(--red);
+    stroke-width: 2.5;
+}
+
+.queue .node rect {
+    fill: var(--paper);
+    stroke: var(--muted);
+    stroke-width: 1.2;
+}
+
+.queue .node.bot rect {
+    stroke-dasharray: 4 3;
+}
+
+.queue .node.on rect {
+    stroke: var(--red);
+    stroke-width: 2;
+}
+
+.queue .node.busy {
+    opacity: 0.4;
+}
+
+.queue .node text {
+    fill: var(--ink);
+    text-anchor: middle;
+    font-weight: 600;
+}
+
+.queue .node .ahead {
+    fill: var(--muted);
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+}
+
+.queue .node .mark {
+    fill: var(--red);
+}
+
+.queue-key {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    margin: 10px 0 0;
+    padding: 0;
+    list-style: none;
+    font-size: 0.8125rem;
+}
+
+.queue-key li {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.queue-key .swatch {
+    display: inline-grid;
+    place-items: center;
+    min-width: 1.75rem;
+    height: 1.1rem;
+    padding: 0 4px;
+    border-radius: 4px;
+    color: var(--muted);
+    font-size: 0.75rem;
+    user-select: none;
+}
+
+.queue-key .swatch.team,
+.queue-key .swatch.bot {
+    background: var(--paper);
+    border: 1.2px solid var(--muted);
+}
+
+.queue-key .swatch.bot {
+    border-style: dashed;
+}
+
+.queue-key .swatch.busy {
+    opacity: 0.4;
+}
+
+.queue-key .swatch.on {
+    color: var(--red);
+}
+
+.queue-help,
+.queue-note {
+    margin: 8px 0 0;
+    color: var(--muted);
+    font-size: 0.8125rem;
+}
+
+.queue-note {
+    font-size: 0.75rem;
+}

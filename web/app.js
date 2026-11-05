@@ -34,6 +34,7 @@ import { fetchModel, percent, winProbability } from './predict.js'
 import { renderBoard } from './board.js'
 import { connectLive, liveUrl, pickLive } from './live.js'
 import { positions, squareName } from './replay.js'
+import { drawQueue } from './queue.js'
 
 const RECENT_GAMES = 50
 const PLAY_MS = 500
@@ -132,6 +133,7 @@ async function refresh() {
         }
         changed = (await follow()) || changed
         running = await fetchRunning().catch(() => [])
+        if ($('queue').open) showQueue()
         model = await fetchModel(DATA)
         if (first && GAME && running.some((g) => g.id === GAME)) ensureLive()
         else if (first && GAME) openLinked().catch(() => (replay.pinned = false))
@@ -150,6 +152,20 @@ async function refresh() {
 async function fetchRunning() {
     const res = await fetch(`${DATA}/live.json`, { cache: 'no-store' })
     return res.ok ? (await res.json()).games : []
+}
+
+// Absent avec un ladder qui ne publie pas encore queue.json : le panneau le dit.
+async function showQueue() {
+    const res = await fetch(`${DATA}/queue.json`, { cache: 'no-store' }).catch(() => null)
+    const teams = res?.ok ? await res.json().then((file) => file.teams, () => null) : null
+    const busy = new Set(running.flatMap((g) => [g.red, g.black]))
+    $('queue-tree').replaceChildren(
+        teams === null
+            ? el('p', { class: 'queue-help' }, "Ce ladder ne publie pas encore sa file d'attente.")
+            : teams.length
+              ? drawQueue(teams, busy)
+              : el('p', { class: 'queue-help' }, 'File vide.'),
+    )
 }
 
 const teamUrl = (team) => `${DATA}/teams/${encodeURIComponent(team)}.jsonl`
@@ -800,10 +816,22 @@ $('next').addEventListener('click', () => browse(replay.index + 1))
 $('last').addEventListener('click', () => browse(replay.steps.length - 1))
 $('play').addEventListener('click', togglePlayback)
 $('step').addEventListener('input', (e) => browse(+e.target.value))
+// Easter egg : taper « file » ouvre ou ferme la file d'attente.
+let typed = ''
 document.addEventListener('keydown', (e) => {
     if (e.target.closest('input, select, textarea, [contenteditable], [role="slider"]')) return
     if (e.key === 'ArrowLeft') browse(replay.index - 1)
     if (e.key === 'ArrowRight') browse(replay.index + 1)
+    if (e.key.length !== 1 || e.ctrlKey || e.metaKey || e.altKey) return
+    typed = (typed + e.key.toLowerCase()).slice(-4)
+    if (typed !== 'file') return
+    typed = ''
+    const queue = $('queue')
+    if (queue.open) queue.close()
+    else {
+        queue.showModal()
+        showQueue()
+    }
 })
 
 // Le formulaire n'apparaît que si le service de soumission répond (absent en hébergement statique).

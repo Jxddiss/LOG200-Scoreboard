@@ -207,6 +207,31 @@
             <ol id="games" class="scroll games-list" tabindex="-1"></ol>
         </section>
     </main>
+
+    <dialog id="queue" class="queue" aria-labelledby="queue-title">
+        <div class="queue-head">
+            <h2 id="queue-title">File d'attente</h2>
+            <form method="dialog"><button class="share" type="submit">Fermer</button></form>
+        </div>
+        <div id="queue-tree" class="queue-tree"></div>
+        <ul class="queue-key">
+            <li><span class="swatch on">▲</span>Tête de file : la prochaine équipe à jouer, au bout du chemin rouge.</li>
+            <li><span class="swatch">←→</span>À gauche, en retard ; à droite, en avance.</li>
+            <li><span class="swatch">+n</span>Parties d'avance sur l'horloge de la file.</li>
+            <li><span class="swatch team"></span>Équipe</li>
+            <li><span class="swatch bot"></span>Bot, qui avance deux fois plus vite</li>
+            <li><span class="swatch team busy"></span>En partie</li>
+        </ul>
+        <p class="queue-help">
+            Chaque paire lancée fait avancer ses deux équipes de 2 (un bot de 4). Une nouvelle équipe entre
+            tout à gauche. La file dit qui joue bientôt, pas contre qui : l'adversaire dépend de l'Elo, du
+            dernier adversaire et du hasard entre ex æquo.
+        </p>
+        <p class="queue-note">
+            Arbre binaire calculé pour l'affichage, dans l'ordre de la file. En mémoire, la file est un
+            B-tree plat.
+        </p>
+    </dialog>
 </body>
 
 </html>
