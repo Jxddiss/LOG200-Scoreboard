@@ -155,12 +155,13 @@ async function fetchRunning() {
 }
 
 const queueView = createQueueView({ tree: $('queue-tree'), lede: $('queue-lede') })
+$('queue').addEventListener('close', () => queueView.reset())
 
 // Absent avec un ladder qui ne publie pas encore queue.json : `null`, et le panneau le dit.
 async function showQueue() {
     const res = await fetch(`${DATA}/queue.json`, { cache: 'no-store' }).catch(() => null)
-    const teams = res?.ok ? await res.json().then((file) => file.teams, () => null) : null
-    queueView.show(teams, running)
+    const file = res?.ok ? await res.json().catch(() => null) : null
+    queueView.show(file?.teams ?? null, running, file?.next ?? [])
 }
 
 const teamUrl = (team) => `${DATA}/teams/${encodeURIComponent(team)}.jsonl`
@@ -824,7 +825,6 @@ document.addEventListener('keydown', (e) => {
     typed = ''
     if (queue.open) queue.close()
     else {
-        queueView.reset()
         queue.showModal()
         showQueue()
     }

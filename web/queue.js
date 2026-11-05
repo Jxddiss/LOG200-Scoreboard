@@ -44,17 +44,28 @@ function bend(a, b, to) {
     return `V${mid - BEND}Q${a.x} ${mid} ${a.x + s * BEND} ${mid}H${b.x - s * BEND}Q${b.x} ${mid} ${b.x} ${mid + BEND}V${to}`
 }
 
-function tile(node, { x, y }, pawn, next) {
-    const kind = [node.bot ? 'bot' : 'team', node.path && 'path', next && 'next', pawn && 'busy']
+// Ce que la case montre : `busy` donne la couleur du pion d'une équipe en partie, `called` les équipes annoncées.
+function kinds(team, { busy, called }, next) {
+    return [team.bot ? 'bot' : 'team', next && 'next', busy.has(team.id) && 'busy', called.has(team.id) && 'called']
+}
+
+function describe(team, { busy, called }) {
+    const pawn = busy.get(team.id)
+    const where = pawn ? `, en partie avec les ${pawn === 'red' ? 'rouges' : 'noirs'}` : ''
+    return `${team.id} : ${signed(team.ahead)}${where}${called.has(team.id) ? ', annoncée' : ''}`
+}
+
+function tile(node, { x, y }, marks, next) {
+    const pawn = marks.busy.get(node.id)
+    const kind = [...kinds(node, marks, next), node.path && 'path']
     const group = svg('g', {
         class: `node ${kind.filter(Boolean).join(' ')}`,
         'data-team': node.id,
         style: `--d: ${node.depth}`,
     })
-    const where = pawn ? `, en partie avec les ${pawn === 'red' ? 'rouges' : 'noirs'}` : ''
     const box = { x: x - TILE.w / 2, y: y - TILE.h / 2, width: TILE.w, height: TILE.h, rx: 5 }
     group.append(
-        svg('title', {}, `${node.id} : ${signed(node.ahead)}${where}`),
+        svg('title', {}, describe(node, marks)),
         svg('rect', { ...box, class: 'base' }),
         svg('rect', box),
         svg('text', { class: 'name', x, y: y - 2 }, short(node.id)),
@@ -66,7 +77,7 @@ function tile(node, { x, y }, pawn, next) {
 }
 
 // Une colonne par équipe : l'arbre défile horizontalement au-delà d'une quinzaine.
-function draw(teams, busy, next) {
+function draw(teams, marks, next) {
     const nodes = layout(teams, next)
     const depth = Math.max(...nodes.map((n) => n.depth))
     const width = nodes.length * COLUMN
@@ -108,7 +119,7 @@ function draw(teams, busy, next) {
         root.append(svg('path', { class: 'trail', d, pathLength: 1 }))
     }
 
-    nodes.forEach((node, i) => root.append(tile(node, center(i), busy.get(node.id), i === next)))
+    nodes.forEach((node, i) => root.append(tile(node, center(i), marks, i === next)))
 
     const axis = height - 16
     root.append(
@@ -143,22 +154,27 @@ function slide(root, before, at) {
 }
 
 // Les mêmes cases, dans l'ordre de la file, de gauche à droite puis de haut en bas.
-function list(teams, busy, next) {
+function list(teams, marks, next) {
     const span = (className, textContent) => Object.assign(document.createElement('span'), { className, textContent })
     const root = Object.assign(document.createElement('ol'), { className: 'queue-list' })
     teams.forEach((team, i) => {
-        const pawn = busy.get(team.id)
-        const kind = [team.bot ? 'bot' : 'team', i === next && 'next', pawn && 'busy'].filter(Boolean)
-        const where = pawn ? `, en partie avec les ${pawn === 'red' ? 'rouges' : 'noirs'}` : ''
+        const pawn = marks.busy.get(team.id)
         const item = Object.assign(document.createElement('li'), {
-            className: kind.join(' '),
-            title: `${team.id} : ${signed(team.ahead)}${where}`,
+            className: kinds(team, marks, i === next).filter(Boolean).join(' '),
+            title: describe(team, marks),
         })
         item.append(span('name', team.id), span('ahead', signed(team.ahead)))
         if (pawn) item.append(span(`pawn ${pawn}`, ''))
         root.append(item)
     })
     return root
+}
+
+// Temps restant avant `at`, pour l'annonce : « dans 42 s », « dans 1 min 05 » ou « maintenant ».
+export function countdown(at, now) {
+    const s = Math.ceil((Date.parse(at) - now) / 1000)
+    if (!(s > 0)) return 'maintenant'
+    return s < 60 ? `dans ${s} s` : `dans ${Math.floor(s / 60)} min ${String(s % 60).padStart(2, '0')}`
 }
 
 function sentence(names) {
@@ -171,20 +187,43 @@ function sentence(names) {
     return parts
 }
 
-// `tree` reçoit l'arbre, `lede` la phrase d'en-tête. `reset()` rejoue l'entrée à la prochaine ouverture.
+// Phrase d'en-tête : les paires annoncées et leur compte à rebours, puis les suivantes dans la file.
+function headline(announced, after, games) {
+    const parts = []
+    const sorted = [...announced].sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
+    sorted.forEach(({ teams: [a, b], at }, i) => {
+        parts.push(i ? ', ' : 'Annoncé : ', ...sentence([a]), ' contre ', ...sentence([b]), ` ${countdown(at, Date.now())}`)
+    })
+    if (sorted.length) parts.push('. ')
+    if (after.length) parts.push(sorted.length ? 'Ensuite : ' : 'Prochaines à jouer : ', ...sentence(after), '.')
+    else if (!sorted.length) parts.push('Toutes les équipes sont en partie.')
+    if (games) parts.push(` ${games} partie${games > 1 ? 's' : ''} en cours.`)
+    return parts
+}
+
+// `tree` reçoit l'arbre, `lede` la phrase d'en-tête. `reset()` rejoue l'entrée à la prochaine ouverture
+// et arrête le compte à rebours.
 export function createQueueView({ tree, lede }) {
     let key = null
     let positions = null
+    let timer = null
+    const stop = () => {
+        clearInterval(timer)
+        timer = null
+    }
     return {
         reset() {
             key = null
             positions = null
+            stop()
         },
-        show(teams, running) {
+        show(teams, running, announced = []) {
             const busy = new Map(running.flatMap((g) => [[g.red, 'red'], [g.black, 'black']]))
-            const now = JSON.stringify([teams, [...busy]])
+            const called = new Set(announced.flatMap((a) => a.teams))
+            const now = JSON.stringify([teams, [...busy], announced])
             if (now === key) return
             key = now
+            stop()
             if (!teams?.length) {
                 positions = null
                 lede.replaceChildren()
@@ -192,22 +231,20 @@ export function createQueueView({ tree, lede }) {
                 tree.replaceChildren(Object.assign(document.createElement('p'), { className: 'queue-empty', textContent: text }))
                 return
             }
-            const free = teams.filter((t) => !busy.has(t.id))
+            const free = teams.filter((t) => !busy.has(t.id) && !called.has(t.id))
             const next = Math.max(0, teams.indexOf(free[0]))
-            const games = running.length
-            lede.replaceChildren(
-                ...(free.length
-                    ? ['Prochaines à jouer : ', ...sentence(free.slice(0, 3).map((t) => t.id)), '.']
-                    : ['Toutes les équipes sont en partie.']),
-                games ? ` ${games} partie${games > 1 ? 's' : ''} en cours.` : '',
-            )
+            const after = free.slice(0, 3).map((t) => t.id)
+            const tick = () => lede.replaceChildren(...headline(announced, after, running.length))
+            tick()
+            if (announced.length) timer = setInterval(tick, 1000)
+            const marks = { busy, called }
             tree.dataset.shape = teams.length >= LIST_FROM ? 'list' : 'tree'
             if (tree.dataset.shape === 'list') {
                 positions = null
-                tree.replaceChildren(list(teams, busy, next))
+                tree.replaceChildren(list(teams, marks, next))
                 return
             }
-            const { root, at } = draw(teams, busy, next)
+            const { root, at } = draw(teams, marks, next)
             const before = positions
             positions = at
             tree.replaceChildren(root)

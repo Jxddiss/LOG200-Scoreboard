@@ -2277,6 +2277,18 @@ p.graph-link:hover {
     opacity: 0.45;
 }
 
+/* Annoncée : réservée pour le slot qui finit sa pause. */
+.queue .node.called rect:not(.base) {
+    stroke: var(--red);
+    stroke-width: 2;
+    stroke-dasharray: 5 3;
+}
+
+.queue-list .called {
+    border-color: var(--red);
+    border-style: dashed;
+}
+
 /* Fond opaque sous chaque case : le tracé et les arêtes passent derrière une case creuse ou atténuée. */
 .queue .node rect.base {
     fill: var(--surface);

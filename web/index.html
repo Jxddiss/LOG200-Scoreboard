@@ -212,7 +212,7 @@
         <header class="queue-head">
             <div>
                 <h2 id="queue-title">File d'attente</h2>
-                <p id="queue-lede" class="queue-lede" aria-live="polite"></p>
+                <p id="queue-lede" class="queue-lede"></p>
             </div>
             <form method="dialog">
                 <button class="icon queue-close" type="submit" aria-label="Fermer la file d'attente">
@@ -228,6 +228,10 @@
                 <div>
                     <dt><svg viewBox="0 0 34 22" aria-hidden="true"><g class="node team next"><rect x="1" y="1" width="32" height="20" rx="4" /></g></svg></dt>
                     <dd>Prochaine équipe libre à jouer</dd>
+                </div>
+                <div>
+                    <dt><svg viewBox="0 0 34 22" aria-hidden="true"><g class="node team called"><rect x="1" y="1" width="32" height="20" rx="4" /></g></svg></dt>
+                    <dd>Annoncée : joue dès la fin de la pause de son slot</dd>
                 </div>
                 <div>
                     <dt><svg viewBox="0 0 34 22" aria-hidden="true"><g class="node team"><rect x="1" y="1" width="32" height="20" rx="4" /></g></svg></dt>
@@ -249,8 +253,9 @@
             <div class="queue-notes">
                 <p>
                     Chaque paire lancée fait avancer ses deux équipes de 2, un bot de 4. Une nouvelle équipe
-                    entre tout à gauche. La file dit qui joue bientôt, pas contre qui : l'adversaire dépend
-                    de l'Elo, du dernier adversaire et du hasard entre ex æquo.
+                    entre tout à gauche. Le match suivant est tiré au début de la pause d'un slot, d'où
+                    l'annonce exacte ; elle tombe si une équipe soumet un nouveau jar ou part en tournoi.
+                    Au-delà, la file dit qui joue bientôt, pas contre qui.
                 </p>
                 <p class="queue-fine">
                     Arbre binaire calculé pour l'affichage, dans l'ordre de la file. En mémoire, la file est

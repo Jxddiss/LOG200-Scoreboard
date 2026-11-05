@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { layout } from './queue.js'
+import { countdown, layout } from './queue.js'
 
 const teams = (n) => Array.from({ length: n }, (_, i) => ({ id: `t${i}`, ahead: i, bot: false }))
 const marked = (nodes) => nodes.flatMap((n, i) => (n.path ? [i] : []))
@@ -36,4 +36,14 @@ test('chaque nœud garde son équipe et sa place dans la file', () => {
 test('une file vide ou seule', () => {
     assert.deepEqual(layout([], 0), [])
     assert.deepEqual(layout(teams(1), 0), [{ id: 't0', ahead: 0, bot: false, depth: 0, parent: null, path: true }])
+})
+
+test("le compte à rebours de l'annonce", () => {
+    const at = '2026-11-05T12:01:00.000Z'
+    const before = (s) => Date.parse(at) - s * 1000
+    assert.equal(countdown(at, before(42)), 'dans 42 s')
+    assert.equal(countdown(at, before(41.2)), 'dans 42 s')
+    assert.equal(countdown(at, before(65)), 'dans 1 min 05')
+    assert.equal(countdown(at, before(0)), 'maintenant')
+    assert.equal(countdown(at, before(-3)), 'maintenant')
 })
