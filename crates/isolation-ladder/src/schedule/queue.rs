@@ -24,6 +24,10 @@ impl FairQueue {
         self.clock.saturating_sub(self.catch_up)
     }
 
+    pub const fn clock(&self) -> u32 {
+        self.clock
+    }
+
     pub fn pass(&self, id: &str) -> u32 {
         self.pass.get(id).copied().unwrap_or_else(|| self.floor())
     }

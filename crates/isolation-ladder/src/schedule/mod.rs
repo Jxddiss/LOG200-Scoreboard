@@ -4,13 +4,17 @@
 mod queue;
 
 use std::collections::{HashMap, HashSet};
+use std::io;
+use std::path::Path;
 
 use rand::seq::{IndexedRandom, SliceRandom};
 use rand::{Rng, RngExt};
+use serde::Serialize;
 
 use isolation_core::record::GameRecord;
 
 use crate::roster::Team;
+use crate::store::write_atomic;
 use queue::FairQueue;
 
 const MAX_GAP: f64 = 600.0;
@@ -27,6 +31,19 @@ impl PairKey {
         let (first, second) = if a <= b { (a, b) } else { (b, a) };
         Self(first.to_string(), second.to_string())
     }
+}
+
+#[derive(Serialize)]
+struct Queued<'a> {
+    id: &'a str,
+    ahead: i64,
+    bot: bool,
+}
+
+#[derive(Serialize)]
+struct QueueFile<'a> {
+    v: u32,
+    teams: Vec<Queued<'a>>,
 }
 
 pub struct Scheduler {
@@ -67,6 +84,26 @@ impl Scheduler {
         *self.games.entry(PairKey::new(a, b)).or_default() += games * self.weight(a, b);
         self.last.insert(a.to_string(), b.to_string());
         self.last.insert(b.to_string(), a.to_string());
+    }
+
+    /// Publie la file des équipes de `roster` dans `queue.json` (format dans docs/formats.md).
+    pub fn publish(&self, dir: &Path, roster: &[Team]) -> io::Result<()> {
+        let present: HashSet<&str> = roster.iter().map(|t| t.id.as_str()).collect();
+        let clock = i64::from(self.queue.clock());
+        let teams = self
+            .queue
+            .iter()
+            .filter(|(_, id)| present.contains(id))
+            .map(|(pass, id)| Queued {
+                id,
+                ahead: i64::from(pass) - clock,
+                bot: self.bots.contains(id),
+            })
+            .collect();
+        write_atomic(
+            &dir.join("queue.json"),
+            &serde_json::to_vec(&QueueFile { v: 1, teams })?,
+        )
     }
 
     fn mark_bot(&mut self, id: &str, bot: bool) {
@@ -417,6 +454,31 @@ mod tests {
             let first = play(&mut scheduler, &teams, &HashSet::new(), flat, &mut rng).unwrap();
             assert_eq!(sorted(&first), pair("b", "c"));
         }
+    }
+
+    #[test]
+    fn publishes_the_roster_queue_relative_to_its_clock() {
+        let dir = crate::submit::test_support::temp_dir("queue-publish");
+        let mut scheduler = Scheduler::default();
+        scheduler.queue.join("d");
+        scheduler.mark_bot("e", true);
+        for (a, b) in [("a", "e"), ("b", "c"), ("a", "b")] {
+            scheduler.record(a, b, 2);
+        }
+        let roster = [team("d"), team("a"), team("b"), bot("e")];
+        scheduler.publish(&dir, &roster).unwrap();
+        let file: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("queue.json")).unwrap()).unwrap();
+        assert_eq!(
+            file,
+            serde_json::json!({ "v": 1, "teams": [
+                { "id": "d", "ahead": -2, "bot": false },
+                { "id": "a", "ahead": 2, "bot": false },
+                { "id": "b", "ahead": 2, "bot": false },
+                { "id": "e", "ahead": 2, "bot": true },
+            ]})
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

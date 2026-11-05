@@ -192,6 +192,8 @@ fn run(path: &Path, rounds: Option<u64>) -> anyhow::Result<()> {
                     round += 1;
                     running[usize::from(multithread_game(cfg, a, b))] += 1;
                     scheduler.record(&a.id, &b.id, 2);
+                    let queued = scheduler.publish(cfg.data_dir(), &teams);
+                    queued.unwrap_or_else(|e| eprintln!("   file d'attente non publiée : {e}"));
                     busy.extend([a.id.clone(), b.id.clone()]);
                     let opening = random_opening(cfg.opening_plies, &mut rng);
                     eprintln!(
