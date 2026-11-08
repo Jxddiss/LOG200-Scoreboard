@@ -6,7 +6,7 @@
 name: Ladder
 
 permissions:
-  contents: read
+  contents: write # tagger la version soumise (V<n>)
 
 on:
   push:
@@ -114,3 +114,31 @@ jobs:
             echo "::error::${reason:-ladder injoignable a $LADDER_URL}"
             exit 1
           fi
+
+      - name: Tagger la version soumise
+        continue-on-error: true
+        env:
+          LADDER_URL: ${{ vars.LADDER_URL }}
+        run: |
+          hash=$(sha256sum client.jar | cut -c1-16)
+          n=
+          for _ in $(seq 20); do
+            n=$(curl -sSf --max-time 30 "${LADDER_URL%/}/data/summary.json" | jq -r --arg h "$hash" \
+              '[.builds[] | index($h) | select(. != null)] | first // empty | . + 1') || true
+            [ -n "$n" ] && break
+            sleep 30
+          done
+          if [ -z "$n" ]; then
+            echo "::warning::Build $hash absent de summary.json : pas de tag."
+            exit 0
+          fi
+          tag="V$n"
+          git fetch --tags --force --quiet origin
+          if git rev-parse -q --verify "refs/tags/$tag" > /dev/null; then
+            echo "::notice::Tag $tag deja present : inchange."
+          else
+            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+              tag -a "$tag" "$GITHUB_SHA" -m "Ladder $tag, build $hash"
+            git push origin "refs/tags/$tag"
+          fi
+          echo "Version du ladder : **$tag** (build \`$hash\`, commit \`${GITHUB_SHA::7}\`)" >> "$GITHUB_STEP_SUMMARY"

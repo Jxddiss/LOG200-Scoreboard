@@ -55,6 +55,17 @@ Le smoke test joue deux parties et attend la fin de la partie en cours du ladder
 
 Perdre le smoke test n'est pas un refus : seul compte le fait de jouer jusqu'au bout avec des coups valides.
 
+## Retrouver le commit d'une version du classement
+
+Le classement numérote les versions de votre jar **v1, v2, v3…** dans l'ordre où elles apparaissent. Après chaque soumission acceptée, le workflow attend que le ladder affiche la nouvelle version, puis pose le tag **`V<n>`** (même numéro, en majuscule) sur le commit soumis. Pour savoir quel code jouait une partie de `v7` : `git show V7`, ou la liste des tags sur GitHub. Le message du tag garde le build (SHA-256 abrégé du jar) pour recouper avec le ladder.
+
+- Si le même jar est soumis à nouveau (relance, changement sans effet sur le bytecode), il garde son numéro et son tag.
+- Une soumission refusée ou annulée par un push plus récent ne crée pas de tag.
+- Le tag est posé quand la première partie de la nouvelle version est jouée : l'étape peut attendre jusqu'à 10 minutes (équipes multithread : parties plus rares).
+- Le workflow a besoin de `permissions: contents: write` (déjà présent dans `ladder.yml`) et lit `LADDER_URL/data/summary.json`. Si le tag échoue, l'étape est signalée en avertissement mais la soumission reste valide.
+- Si le ladder est réinitialisé, ses numéros repartent de v1 : les anciens tags `V<n>` ne correspondent plus. Supprimez-les (`git push origin --delete V1 V2 …`) ou gardez-les comme historique.
+- Les tags sont en majuscule exprès : `release.yml` ne cherche que `v[0-9]*` pour calculer la version du projet.
+
 ## Obfusquer le jar (optionnel)
 
 Dans `ladder.yml`, remplacer `OBFUSCATE: false` par `OBFUSCATE: true` (en haut du fichier) : le workflow passe vos classes dans [ProGuard](https://github.com/Guardsquare/proguard) avant de construire le jar : classes, méthodes et champs deviennent `a`, `b`, `c`… Seul `Client.main` garde son nom. Le jar se comporte exactement pareil et ne joue pas plus lentement.
