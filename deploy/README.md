@@ -59,6 +59,12 @@ La section `[tournament]` de `ladder.toml` tire un tournoi chaque semaine (`week
 
 La commande dépose une requête dans `jars/admin/`, que le ladder lit en moins de 10 s.
 
+Un jar absent (`no_show`) ne perd pas tout de suite en tournoi : la partie est rejouée 30 s plus tard, et l'absence ne compte qu'au dernier essai (`retries`, 3 par défaut). Un jar figé a passé le smoke test ; s'il ne se connecte pas, c'est le plus souvent la machine qui rame.
+
+### Surchauffe
+
+Un tournoi charge plus la machine que le ladder : ses parties s'enchaînent sans `pause_s`, à 5 s par coup, sur tous les slots. Un CPU trop chaud baisse sa fréquence, les jars démarrent plus lentement que `connect_timeout_ms` et perdent par `no_show`. La section `[thermal]` de `ladder.toml` arrête de lancer des parties au-dessus de `pause_c` (90 °C par défaut) et reprend sous `resume_c` (80 °C). `docker compose logs ladder | grep thermal` montre le capteur trouvé au démarrage et chaque pause. Le conteneur est privilégié, il lit donc le `/sys` de l'hôte. Sans capteur (dans une VM, par exemple), le ladder l'annonce au démarrage et joue sans garde-fou.
+
 ## Nom de domaine et HTTPS
 
 Hors du périmètre de ce compose : placer le reverse proxy de votre choix (Caddy, Nginx…) devant le port 8080.

@@ -112,6 +112,16 @@ time_ms = 5000
 # catch_up_h = 2
 # retries = 3
 
+# Garde-fou thermique : au-dessus de pause_c (en degres), aucune nouvelle partie, tournoi compris,
+# jusqu'a ce que le CPU redescende sous resume_c. Un CPU trop chaud baisse sa frequence : les jars
+# mettent alors plus que connect_timeout_ms a demarrer et perdent par no_show. Le capteur du package
+# CPU est trouve sous /sys/class (coretemp, k10temp ou x86_pkg_temp) ; sensor le remplace. Sans
+# cette section, les parties partent quelle que soit la temperature.
+# [thermal]
+# pause_c = 90
+# resume_c = 80
+# sensor = "/sys/class/hwmon/hwmon3/temp1_input"
+
 # Equipes fixes, en plus des equipes inscrites. Dans cmd, {port}, {game} et {side} (red ou black)
 # sont remplaces. `anchor = true` fige le rating a 1500.
 [[team]]

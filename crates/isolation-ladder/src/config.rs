@@ -62,6 +62,8 @@ pub struct Config {
     /// Direct des parties pour la page (`/api/live`). Absent : pas de direct.
     pub live: Option<LiveConfig>,
     pub tournament: Option<TournamentConfig>,
+    /// Garde-fou thermique (`thermal.rs`). Absent : les parties partent quelle que soit la température.
+    pub thermal: Option<ThermalConfig>,
     #[serde(default, rename = "team")]
     pub teams: Vec<TeamConfig>,
 }
@@ -100,6 +102,8 @@ pub enum ConfigError {
     BadConnect(String),
     #[error("[tournament] min_teams doit valoir au moins 2, pas {0}")]
     TournamentTooSmall(usize),
+    #[error("[thermal] resume_c ({resume_c}) doit être sous pause_c ({pause_c})")]
+    ThermalHysteresis { pause_c: f64, resume_c: f64 },
 }
 
 impl FromStr for Config {
@@ -125,6 +129,14 @@ impl FromStr for Config {
             && tournament.min_teams < 2
         {
             return Err(ConfigError::TournamentTooSmall(tournament.min_teams));
+        }
+        if let Some(t) = &config.thermal
+            && t.resume_c >= t.pause_c
+        {
+            return Err(ConfigError::ThermalHysteresis {
+                pause_c: t.pause_c,
+                resume_c: t.resume_c,
+            });
         }
         Ok(config)
     }
@@ -257,6 +269,27 @@ impl Default for TournamentConfig {
 
 #[derive(Deserialize, Clone)]
 #[serde(default, deny_unknown_fields)]
+pub struct ThermalConfig {
+    /// En °C. Au-dessus, aucune nouvelle partie.
+    pub pause_c: f64,
+    /// En °C, sous `pause_c`. En dessous, les parties reprennent.
+    pub resume_c: f64,
+    /// Fichier sysfs en millidegrés. Par défaut : le package CPU, trouvé sous `/sys/class`.
+    pub sensor: Option<PathBuf>,
+}
+
+impl Default for ThermalConfig {
+    fn default() -> Self {
+        Self {
+            pause_c: 90.0,
+            resume_c: 80.0,
+            sensor: None,
+        }
+    }
+}
+
+#[derive(Deserialize, Clone)]
+#[serde(default, deny_unknown_fields)]
 pub struct SubmitConfig {
     pub listen: String,
     /// Équipes inscrites et sha256 de leur token (`isolation-ladder add-team`).
@@ -354,6 +387,19 @@ pub mod tests {
         assert!(matches!(bad.parse::<Config>(), Err(ConfigError::BadConnect(_))));
         let cfg: Config = format!("{MINIMAL}[submit]\n[remote]\n").parse().unwrap();
         assert!(cfg.remote.unwrap().connect.starts_with("unix:"));
+    }
+
+    #[test]
+    fn thermal_defaults_and_hysteresis_are_checked() {
+        assert!(MINIMAL.parse::<Config>().unwrap().thermal.is_none());
+        let cfg: Config = format!("{MINIMAL}[thermal]\n").parse().unwrap();
+        let t = cfg.thermal.unwrap();
+        assert_eq!((t.pause_c, t.resume_c, t.sensor), (90.0, 80.0, None));
+        let inverted = format!("{MINIMAL}[thermal]\npause_c = 80\nresume_c = 85\n");
+        assert!(matches!(
+            inverted.parse::<Config>(),
+            Err(ConfigError::ThermalHysteresis { .. })
+        ));
     }
 
     #[test]

@@ -97,6 +97,9 @@ pub struct Pending {
     pub black: Team,
     pub opening: Vec<Move>,
     pub time_ms: u64,
+    /// Dernier essai avant suspension : un `no_show` y compte comme une défaite. Avant, la partie
+    /// est annulée et rejouée : un jar figé a passé le smoke test, il sait se connecter.
+    pub forfeit_counts: bool,
 }
 
 pub struct Tournament {
@@ -302,6 +305,7 @@ impl Tournament {
             black: self.teams[black].clone(),
             opening,
             time_ms: self.draw.time_ms,
+            forfeit_counts: self.failures[k] >= self.retries,
         }
     }
 }
@@ -500,6 +504,28 @@ pub(super) mod tests {
         assert!(t.resume("W1"));
         assert!(!t.resume("W1"));
         assert_eq!(summary(&t.pending(&HashSet::new()))[0].0, "W1");
+    }
+
+    #[test]
+    fn only_the_last_try_before_suspension_lets_a_no_show_count() {
+        let mut t = tournament(4);
+        let w1 = |t: &Tournament| {
+            t.pending(&HashSet::new())
+                .into_iter()
+                .find(|p| p.game.match_id == "W1")
+                .unwrap()
+        };
+        let opening = w1(&t).opening;
+        for _ in 0..3 {
+            let p = w1(&t);
+            assert!(!p.forfeit_counts);
+            assert_eq!((p.game.game, &p.opening), (1, &opening));
+            t.finish("W1", None);
+        }
+        assert!(w1(&t).forfeit_counts);
+        t.finish("W1", Some(&won(&t, "W1", "t0")));
+        let p = w1(&t);
+        assert_eq!((p.game.game, p.forfeit_counts), (2, false));
     }
 
     #[test]

@@ -18,6 +18,7 @@ mod store;
 mod submit;
 mod sync;
 mod team_id;
+mod thermal;
 mod tournament;
 
 use std::collections::HashSet;
@@ -49,11 +50,15 @@ use schedule::{Announcements, Scheduler};
 use standings::Standings;
 use store::append_jsonl;
 use team_id::TeamId;
+use thermal::Thermal;
 use tournament::admin::{self, Request};
 use tournament::{Organizer, Pending};
 
 /// Pause après une partie annulée : une config cassée ne doit pas faire tourner le ladder à vide.
 const RETRY_DELAY: Duration = Duration::from_secs(5);
+/// Avant de rejouer une partie de tournoi annulée sur un `no_show` : le plus souvent, une machine
+/// surchargée ou trop chaude, qu'on laisse souffler.
+const NO_SHOW_RETRY_DELAY: Duration = Duration::from_secs(30);
 const IDLE_DELAY: Duration = Duration::from_secs(10);
 const LOG_RETENTION: Duration = Duration::from_hours(60 * 24);
 
@@ -140,20 +145,25 @@ fn request(action: TournamentAction) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Matchmaking, classement et tournoi en cours, rebâtis depuis `games.jsonl`.
+fn restore(cfg: &Config, rounds: Option<u64>) -> anyhow::Result<(Scheduler, Standings, Organizer)> {
+    let history = fs::read_to_string(&cfg.out)
+        .map(|text| Jsonl::parse(&text))
+        .unwrap_or_default();
+    let scheduler = Scheduler::from_history(&history.games, &cfg.session);
+    let standings = Standings::from_history(cfg.data_dir(), &history.games, &history.at)
+        .with_context(|| cfg.data_dir().display().to_string())?;
+    let tournaments = Organizer::new(cfg, rounds.is_none(), &history.games)?;
+    tournaments.publish_preview(cfg, &standings);
+    Ok((scheduler, standings, tournaments))
+}
+
 fn run(path: &Path, rounds: Option<u64>) -> anyhow::Result<()> {
     let sigterm = Sigterm::listen().context("écoute de SIGTERM")?;
     let cfg = load(path)?;
     let logs = cfg.logs_dir();
     fs::create_dir_all(&logs).with_context(|| logs.display().to_string())?;
-    let history = fs::read_to_string(&cfg.out)
-        .map(|text| Jsonl::parse(&text))
-        .unwrap_or_default();
-    let scheduler = Scheduler::from_history(&history.games, &cfg.session);
-    let mut standings = Standings::from_history(cfg.data_dir(), &history.games, &history.at)
-        .with_context(|| cfg.data_dir().display().to_string())?;
-    let mut tournaments = Organizer::new(&cfg, rounds.is_none(), &history.games)?;
-    tournaments.publish_preview(&cfg, &standings);
-    drop(history);
+    let (scheduler, mut standings, mut tournaments) = restore(&cfg, rounds)?;
     let mut live = Live::new(cfg.data_dir().to_path_buf()).with_context(|| cfg.data_dir().display().to_string())?;
 
     let (reports, received) = mpsc::channel();
@@ -169,16 +179,22 @@ fn run(path: &Path, rounds: Option<u64>) -> anyhow::Result<()> {
     let mut waiting = false;
     let mut warned = HashSet::new();
     let mut pairs = Pairs::new(scheduler);
+    let mut thermal = Thermal::new(cfg.thermal.as_ref());
     loop {
         if !arena.draining() && rounds.is_none_or(|n| pairs.round < n) {
             tournaments.tick(cfg, &standings, rng.random());
             tournaments.poll(cfg, &standings, rng.random());
-            launch_tournament(&arena, &mut tournaments, &mut pairs.busy, &mut pairs.running, &reports);
+            let cool = thermal.as_mut().is_none_or(Thermal::cool);
+            if cool {
+                launch_tournament(&arena, &mut tournaments, &mut pairs.busy, &mut pairs.running, &reports);
+            }
             let teams = roster(cfg, remote.as_ref(), &mut warned);
             let waiting_teams = tournaments.waiting();
             pairs.cancel_stale(cfg, &teams, &waiting_teams);
-            pairs.launch_announced(&arena, &teams, &reports, &mut rng);
-            if pairs.running.iter().sum::<usize>() < cfg.slots() && pairs.open(rounds) {
+            if cool {
+                pairs.launch_announced(&arena, &teams, &reports, &mut rng);
+            }
+            if cool && pairs.running.iter().sum::<usize>() < cfg.slots() && pairs.open(rounds) {
                 let unavailable = pairs.unavailable(&waiting_teams, None);
                 let running = pairs.running;
                 let fits = |a: &Team, b: &Team| {
@@ -477,12 +493,12 @@ fn live_hub(reports: &Sender<Report>) -> Arc<Hub> {
 fn spawn_pair(arena: Arc<Arena>, a: Team, b: Team, opening: Vec<Move>, reports: Sender<Report>) {
     thread::spawn(move || {
         for (red, black) in [(&a, &b), (&b, &a)] {
-            let failed = play_and_report(&arena, &reports, red, black, &opening, None);
+            let retry = play_and_report(&arena, &reports, red, black, &opening, None);
             if arena.draining() {
                 break;
             }
-            if failed {
-                thread::sleep(RETRY_DELAY);
+            if let Some(delay) = retry {
+                thread::sleep(delay);
             }
         }
         if !arena.draining() {
@@ -503,15 +519,16 @@ fn spawn_game(arena: Arc<Arena>, p: Pending, reports: Sender<Report>) {
         let fixture = Fixture {
             game: p.game,
             time_ms: p.time_ms,
+            forfeit_counts: p.forfeit_counts,
         };
-        if play_and_report(&arena, &reports, &p.red, &p.black, &p.opening, Some(&fixture)) {
-            thread::sleep(RETRY_DELAY);
+        if let Some(delay) = play_and_report(&arena, &reports, &p.red, &p.black, &p.opening, Some(&fixture)) {
+            thread::sleep(delay);
         }
         report_done(&arena, &reports, p.red, p.black);
     });
 }
 
-/// `true` si la partie a échoué.
+/// Si la partie a échoué : l'attente avant la suivante.
 fn play_and_report(
     arena: &Arena,
     reports: &Sender<Report>,
@@ -519,7 +536,7 @@ fn play_and_report(
     black: &Team,
     opening: &[Move],
     fixture: Option<&Fixture>,
-) -> bool {
+) -> Option<Duration> {
     let game = fixture.map(|f| f.game.clone());
     let _ = reports.send(Report::Started {
         red: red.id.clone(),
@@ -527,14 +544,18 @@ fn play_and_report(
         game: game.clone(),
     });
     let outcome = arena.play(red, black, opening, fixture, !(red.is_bot() && black.is_bot()));
-    let failed = outcome.is_err();
+    let retry = match &outcome {
+        Ok(_) => None,
+        Err(GameError::NoShow(_)) => Some(NO_SHOW_RETRY_DELAY),
+        Err(_) => Some(RETRY_DELAY),
+    };
     let _ = reports.send(Report::Played {
         red: red.id.clone(),
         black: black.id.clone(),
         outcome,
         game,
     });
-    failed
+    retry
 }
 
 fn report_done(arena: &Arena, reports: &Sender<Report>, a: Team, b: Team) {

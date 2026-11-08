@@ -49,12 +49,17 @@ pub enum GameError {
     BadResult { json: String, error: serde_json::Error },
     #[error("résultat incohérent : {0}")]
     Inconsistent(#[from] ValidationError),
+    /// Partie de tournoi avant son dernier essai (`Fixture::forfeit_counts`).
+    #[error("{0} jamais connecté à l'arbitre, partie rejouée")]
+    NoShow(String),
 }
 
 /// Partie de tournoi : son temps par coup et sa session remplacent ceux du ladder.
 pub struct Fixture {
     pub game: TournamentGame,
     pub time_ms: u64,
+    /// Faux : un `no_show` annule la partie (`GameError::NoShow`) au lieu de la donner à l'adversaire.
+    pub forfeit_counts: bool,
 }
 
 pub struct Sigterm(#[cfg(unix)] signal_hook::iterator::Signals);
@@ -242,6 +247,9 @@ impl Arena {
         }
         let result = referee.finish(cfg.game_timeout(time_ms))?;
         drop(players);
+        if let Some(absent) = annulled_no_show(&result, fixture, red, black) {
+            return Err(GameError::NoShow(absent.id.clone()));
+        }
         if let Some(on_air) = &mut on_air {
             on_air.result = Some((result.winner, result.reason));
         }
@@ -290,6 +298,21 @@ impl Drop for Hold<'_> {
     fn drop(&mut self) {
         self.0.smoke_tests.fetch_sub(1, Ordering::SeqCst);
     }
+}
+
+/// L'absent d'un `no_show` de tournoi qui n'a pas encore le droit de compter. Un jar figé a passé
+/// le smoke test : s'il ne se connecte pas, le serveur (surchargé, trop chaud) est le premier suspect.
+fn annulled_no_show<'t>(
+    result: &GameResult,
+    fixture: Option<&Fixture>,
+    red: &'t Team,
+    black: &'t Team,
+) -> Option<&'t Team> {
+    let counts = fixture.is_none_or(|f| f.forfeit_counts);
+    (!counts && result.reason == Reason::NoShow).then(|| match result.winner.other() {
+        Color::Red => red,
+        Color::Black => black,
+    })
 }
 
 fn build_hash(team: &Team) -> Option<String> {
@@ -601,5 +624,51 @@ mod tests {
         assert_eq!(arena.smoke_tests(), 1);
         drop(running);
         assert_eq!(arena.smoke_tests(), 0);
+    }
+
+    #[test]
+    fn a_tournament_no_show_is_annulled_until_the_last_try() {
+        let team = |id: &str| Team {
+            id: id.into(),
+            cmd: crate::command::CommandTemplate::default(),
+            build: None,
+            anchor: false,
+            multithread: false,
+            remote: None,
+        };
+        let (red, black) = (team("eq01"), team("eq02"));
+        let result = |winner, reason| GameResult {
+            v: isolation_core::record::RECORD_VERSION,
+            time_ms: 5000,
+            opening: vec![],
+            moves: vec![],
+            winner,
+            reason,
+            invalid: isolation_core::record::InvalidCounts::default(),
+            duration_ms: 10_000,
+            move_ms: vec![],
+        };
+        let fixture = |forfeit_counts| Fixture {
+            game: TournamentGame {
+                id: "tournoi-2026-11-08".into(),
+                match_id: "W1".into(),
+                game: 1,
+            },
+            time_ms: 5000,
+            forfeit_counts,
+        };
+        let absent = |r: &GameResult, f: Option<&Fixture>| annulled_no_show(r, f, &red, &black).map(|t| t.id.clone());
+        let black_absent = result(Color::Red, Reason::NoShow);
+        assert_eq!(absent(&black_absent, Some(&fixture(false))).as_deref(), Some("eq02"));
+        assert_eq!(
+            absent(&result(Color::Black, Reason::NoShow), Some(&fixture(false))).as_deref(),
+            Some("eq01")
+        );
+        assert_eq!(absent(&black_absent, Some(&fixture(true))), None);
+        assert_eq!(absent(&black_absent, None), None);
+        assert_eq!(
+            absent(&result(Color::Red, Reason::Timeout), Some(&fixture(false))),
+            None
+        );
     }
 }
