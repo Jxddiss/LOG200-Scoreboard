@@ -145,6 +145,19 @@ fn request(action: TournamentAction) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// PID 1 sans init : chaque bac à sable laisse un `containerd-shim` orphelin, rattaché à nous, que
+/// personne n'attend. Les zombies s'accumulent jusqu'à la limite de processus du conteneur, puis plus
+/// aucun joueur ne démarre (`no_show` partout). L'image lance un init (`docker-init`) devant nous.
+fn warn_if_init() {
+    if std::process::id() == 1 {
+        eprintln!(
+            "ATTENTION : isolation-ladder est le PID 1, sans init pour ramasser les orphelins. Les \
+             zombies vont s'accumuler jusqu'à bloquer les parties : lancer le conteneur avec \
+             `init: true` (compose) ou `docker run --init`."
+        );
+    }
+}
+
 /// Matchmaking, classement et tournoi en cours, rebâtis depuis `games.jsonl`.
 fn restore(cfg: &Config, rounds: Option<u64>) -> anyhow::Result<(Scheduler, Standings, Organizer)> {
     let history = fs::read_to_string(&cfg.out)
@@ -159,6 +172,7 @@ fn restore(cfg: &Config, rounds: Option<u64>) -> anyhow::Result<(Scheduler, Stan
 }
 
 fn run(path: &Path, rounds: Option<u64>) -> anyhow::Result<()> {
+    warn_if_init();
     let sigterm = Sigterm::listen().context("écoute de SIGTERM")?;
     let cfg = load(path)?;
     let logs = cfg.logs_dir();

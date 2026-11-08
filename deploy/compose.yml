@@ -9,6 +9,9 @@ services:
     image: ghcr.io/vianatets/log200-scoreboard:${SCOREBOARD_TAG:-latest}
     # Docker interne + gVisor : chaque jar tourne dans un bac a sable sans reseau.
     privileged: true
+    # Un init en PID 1 ramasse les containerd-shim orphelins des bacs a sable (l'image en a deja un ;
+    # celui-ci couvre aussi une image plus ancienne).
+    init: true
     restart: unless-stopped
     # SIGTERM : le ladder finit ses parties avant de sortir. Pire cas : une partie de tournoi, 14 min.
     stop_grace_period: 15m

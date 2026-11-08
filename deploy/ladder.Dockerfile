@@ -54,4 +54,8 @@ COPY deploy/ladder-entrypoint.sh /usr/local/bin/
 
 # Les chemins relatifs de ladder.toml (data/, jars/, sandbox/) partent d'ici.
 WORKDIR /srv
-ENTRYPOINT ["ladder-entrypoint.sh"]
+# docker-init (tini, fourni par l'image dind) ramasse les orphelins : chaque bac a sable laisse un
+# containerd-shim rattache au PID 1, et le ladder ne les attend pas. Sans lui, ils restent zombies
+# jusqu'a la limite de processus du conteneur ; plus rien ne demarre (2026-11-08 : 37 581 zombies
+# en 3 jours, tous les joueurs no_show). -s : il ramasse aussi sous un autre init (compose `init: true`).
+ENTRYPOINT ["docker-init", "-s", "--", "ladder-entrypoint.sh"]

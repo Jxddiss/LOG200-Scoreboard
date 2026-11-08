@@ -118,7 +118,7 @@ Dans `games.jsonl`, sous leur propre session, avec un champ facultatif `tourname
 ## Pannes et reprise
 
 - **Partie annulée** (`GameError` de l'arène : arbitre, Docker, partie rejetée par la vérification) : relancée avec la même ouverture, jusqu'à `retries` fois. Ensuite le match passe `suspendu`, le journal et la page le signalent, les autres matchs continuent, et `tournament resume` le débloque.
-- **Jar absent** (`no_show`) : la partie est annulée comme ci-dessus, puis rejouée après 30 s, avec la même ouverture. Un jar figé a passé le smoke test et sait donc se connecter : s'il ne le fait pas, le premier suspect est le serveur (machine surchargée, CPU trop chaud qui baisse sa fréquence). Au dernier essai (`retries` annulations déjà comptées), le `no_show` compte comme une défaite : un jar vraiment cassé perd, mais seulement après `retries` + 1 absences.
+- **Jar absent** (`no_show`) : la partie est annulée comme ci-dessus, puis rejouée après 30 s, avec la même ouverture. Un jar figé a passé le smoke test et sait donc se connecter : s'il ne le fait pas, le premier suspect est le serveur (Docker ou gVisor qui ne démarre pas le joueur, machine surchargée ou trop chaude). Au dernier essai (`retries` annulations déjà comptées), le `no_show` compte comme une défaite : un jar vraiment cassé perd, mais seulement après `retries` + 1 absences.
 - **CPU trop chaud** : avec `[thermal]` dans `ladder.toml`, aucune partie (tournoi ou ladder) ne part au-dessus de `pause_c`, jusqu'à ce que la température redescende sous `resume_c`. Les parties en cours finissent.
 - **Redémarrage du ladder** : le tournoi en cours se reconstruit depuis `data/tournaments/<id>.json` et les parties `tournament` de `games.jsonl`. La partie interrompue est rejouée.
 - **Jar figé disparu** (disque) : partie annulée, donc même traitement.
@@ -170,7 +170,7 @@ Dans `games.jsonl`, sous leur propre session, avec un champ facultatif `tourname
 | D18 | Rétention | Jars figés supprimés à la fin du tournoi | Les replays n'en ont pas besoin ; validé avec l'aperçu | Interview | 2026-10-31 |
 | D19 | Fuseau | `jiff` 0.2, feature `tzdb-bundle-always` | Midi reste midi après le changement d'heure ; l'image alpine n'a pas de base de fuseaux | Interview | 2026-10-31 |
 | D20 | Visuel | Tableau façon Challonge, couleurs du ladder | Référence fournie, lisible pour les étudiants | Interview | 2026-10-31 |
-| D21 | Absences | Un `no_show` de tournoi est rejoué, sauf au dernier essai ; garde-fou thermique `[thermal]` | Tournoi du 2026-11-08 : CPU en surchauffe, jars pas connectés à temps, défaites causées par le serveur (D14) | Incident | 2026-11-08 |
+| D21 | Absences | Un `no_show` de tournoi est rejoué, sauf au dernier essai ; garde-fou thermique `[thermal]` | Tournoi du 2026-11-08 : le conteneur du ladder, sans init, avait accumulé 37 581 zombies jusqu'à sa limite de processus ; les joueurs ne démarraient plus et W13, W14 et W15 ont été décidés par forfait (D14). Le garde-fou thermique est un filet de sécurité, la surchauffe n'était pas en cause (91 °C au plus) | Incident | 2026-11-08 |
 
 ## Dependency Graph & Implementation Order
 

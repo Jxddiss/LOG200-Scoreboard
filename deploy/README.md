@@ -61,9 +61,11 @@ La commande dépose une requête dans `jars/admin/`, que le ladder lit en moins 
 
 Un jar absent (`no_show`) ne perd pas tout de suite en tournoi : la partie est rejouée 30 s plus tard, et l'absence ne compte qu'au dernier essai (`retries`, 3 par défaut). Un jar figé a passé le smoke test ; s'il ne se connecte pas, c'est le plus souvent la machine qui rame.
 
-### Surchauffe
+### Zombies et surchauffe
 
-Un tournoi charge plus la machine que le ladder : ses parties s'enchaînent sans `pause_s`, à 5 s par coup, sur tous les slots. Un CPU trop chaud baisse sa fréquence, les jars démarrent plus lentement que `connect_timeout_ms` et perdent par `no_show`. La section `[thermal]` de `ladder.toml` arrête de lancer des parties au-dessus de `pause_c` (90 °C par défaut) et reprend sous `resume_c` (80 °C). `docker compose logs ladder | grep thermal` montre le capteur trouvé au démarrage et chaque pause. Le conteneur est privilégié, il lit donc le `/sys` de l'hôte. Sans capteur (dans une VM, par exemple), le ladder l'annonce au démarrage et joue sans garde-fou.
+Le conteneur du ladder doit avoir un init en PID 1 (l'image lance `docker-init`, et le compose ajoute `init: true`). Chaque bac à sable laisse un processus `containerd-shim` orphelin ; sans init, personne ne le ramasse et il reste zombie. Le 2026-11-08, 37 581 zombies accumulés en 3 jours ont atteint la limite de processus du conteneur : plus aucun joueur ne démarrait, toutes les parties finissaient en `no_show`, et deux slots sont restés bloqués. Au démarrage, le ladder avertit s'il est lui-même le PID 1. Pour vérifier : `ps -eo stat --ppid $(docker inspect -f '{{.State.Pid}}' <conteneur>) | grep -c Z` sur l'hôte doit rester proche de 0.
+
+La section `[thermal]` de `ladder.toml` est un filet de sécurité contre la vraie surchauffe : au-dessus de `pause_c` (90 °C par défaut), aucune nouvelle partie ne part, jusqu'à ce que le CPU redescende sous `resume_c` (80 °C). Réglez `pause_c` au-dessus de la température normale de la machine en charge : un CPU de bureau peut monter à 95–100 °C sans problème, et le garde-fou bloquerait alors le ladder pour rien. `docker compose logs ladder | grep thermal` montre le capteur trouvé au démarrage et chaque pause. Le conteneur est privilégié, il lit donc le `/sys` de l'hôte. Sans capteur (dans une VM, par exemple), le ladder l'annonce au démarrage et joue sans garde-fou.
 
 ## Nom de domaine et HTTPS
 
