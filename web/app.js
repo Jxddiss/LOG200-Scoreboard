@@ -1,5 +1,5 @@
 // Page du ladder : classement et dernières parties de summary.json, parties des équipes choisies
-// dans teams/, replay lu partie par partie dans games.jsonl.
+// dans teams/, replay lu partie par partie sur /api/games/<id>.
 // ?session=, ?teams=, ?match=, ?window=, ?verified=, ?pace=, ?record= et ?game= suivent les choix de la page : l'adresse
 // se partage telle quelle. ?team= des anciens liens vaut ?teams= avec cette seule équipe.
 
@@ -630,18 +630,14 @@ function renderGames(list, rating) {
 }
 
 async function loadGame(row) {
-    const [start, length] = row.at
-    const res = await fetch(`${DATA}/games.jsonl`, { headers: { Range: `bytes=${start}-${start + length - 1}` } })
+    const res = await fetch(`${SERVER}/api/games/${encodeURIComponent(row.id)}`)
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const bytes = new Uint8Array(await res.arrayBuffer())
-    // 200 : serveur qui ignore Range, fichier entier.
-    const line = res.status === 200 ? bytes.subarray(start, start + length) : bytes
-    const g = JSON.parse(new TextDecoder().decode(line))
+    const g = await res.json()
     if (g.id !== row.id) throw new Error('partie introuvable')
     return g
 }
 
-// Un échec (copie en cache de games.jsonl plus vieille que le résumé) est réessayé au rafraîchissement suivant.
+// Un échec (API injoignable, partie pas encore en base) est réessayé au rafraîchissement suivant.
 async function showGame(row, pinned = replay.pinned) {
     const seq = ++replaySeq
     let g

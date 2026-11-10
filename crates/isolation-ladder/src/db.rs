@@ -42,14 +42,17 @@ fn name<T: serde::Serialize>(value: &T) -> String {
         .unwrap_or_default()
 }
 
-#[allow(dead_code)] // TEMP étape 2 : open_read, conn et game_json servent à l'API.
+fn to_json<T: serde::Serialize>(value: &T) -> rusqlite::Result<String> {
+    serde_json::to_string(value).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
+}
+
 impl Db {
     pub fn open(path: &Path) -> rusqlite::Result<Self> {
         let conn = Connection::open(path)?;
-        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        conn.busy_timeout(Duration::from_secs(5))?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
-        conn.execute_batch(SCHEMA)?;
+        conn.execute_batch(sql::SCHEMA)?;
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         Ok(Self { conn })
     }
@@ -58,17 +61,17 @@ impl Db {
     pub fn open_read(path: &Path) -> rusqlite::Result<Self> {
         let conn =
             Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
-        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        conn.busy_timeout(Duration::from_secs(5))?;
         Ok(Self { conn })
     }
 
+    #[cfg(test)]
     pub fn conn(&self) -> &Connection {
         &self.conn
     }
 
     pub fn is_empty(&self) -> rusqlite::Result<bool> {
-        self.conn
-            .query_row("SELECT NOT EXISTS (SELECT 1 FROM games)", [], |r| r.get(0))
+        self.conn.query_row(sql::IS_EMPTY, [], |r| r.get(0))
     }
 
     pub fn insert_game(&self, game: &GameRecord) -> rusqlite::Result<()> {
@@ -79,11 +82,10 @@ impl Db {
 
     /// Toutes les parties, dans l'ordre où elles ont été jouées.
     pub fn games(&self) -> rusqlite::Result<Vec<GameRecord>> {
-        let mut stmt = self.conn.prepare("SELECT record FROM games ORDER BY seq")?;
+        let mut stmt = self.conn.prepare(sql::GAMES)?;
         let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
         rows.map(|text| {
-            let text = text?;
-            serde_json::from_str(&text)
+            serde_json::from_str(&text?)
                 .map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))
         })
         .collect()
@@ -91,8 +93,8 @@ impl Db {
 
     /// La ligne JSON d'une partie, telle qu'enregistrée.
     pub fn game_json(&self, id: &str) -> rusqlite::Result<Option<String>> {
-        let mut stmt = self.conn.prepare_cached("SELECT record FROM games WHERE id = ?1")?;
-        let mut rows = stmt.query([id])?;
+        let mut stmt = self.conn.prepare_cached(sql::GAME)?;
+        let mut rows = stmt.query(named_params! { ":id": id })?;
         rows.next()?.map(|r| r.get(0)).transpose()
     }
 
@@ -113,7 +115,7 @@ impl Db {
     /// Remplace toute la table : les ratings se recalculent au démarrage.
     pub fn replace_ratings(&self, ratings: impl IntoIterator<Item = Rating>) -> rusqlite::Result<()> {
         let tx = self.conn.unchecked_transaction()?;
-        tx.execute("DELETE FROM ratings", [])?;
+        tx.execute(sql::CLEAR_RATINGS, [])?;
         for rating in ratings {
             insert_rating(&tx, &rating)?;
         }
@@ -131,55 +133,55 @@ impl Db {
 
 fn insert(conn: &Connection, game: &GameRecord) -> rusqlite::Result<()> {
     let result = &game.result;
-    let record = serde_json::to_string(game).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-    let opening =
-        serde_json::to_string(&result.opening).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
     let tournament = game.tournament.as_ref();
-    conn.prepare_cached(
-        "INSERT INTO games (id, session, ts, time_ms, red_team, red_build, red_remote, black_team,
-             black_build, black_remote, winner, reason, invalid_red, invalid_black, duration_ms, plies,
-             opening, tournament_id, tournament_match, tournament_game, record)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
-    )?
-    .execute(params![
-        game.id,
-        game.session,
-        game.ts,
-        result.time_ms,
-        game.red.team,
-        game.red.build,
-        game.red.remote,
-        game.black.team,
-        game.black.build,
-        game.black.remote,
-        name(&result.winner),
-        name(&result.reason),
-        result.invalid.red,
-        result.invalid.black,
-        result.duration_ms,
-        result.moves.len(),
-        opening,
-        tournament.map(|t| &t.id),
-        tournament.map(|t| &t.match_id),
-        tournament.map(|t| t.game),
-        record,
-    ])?;
-    let mut stmt = conn.prepare_cached("INSERT INTO moves (game, ply, color, move, ms) VALUES (?1, ?2, ?3, ?4, ?5)")?;
+    conn.prepare_cached(sql::INSERT_GAME)?.execute(named_params! {
+        ":id": game.id,
+        ":session": game.session,
+        ":ts": game.ts,
+        ":time_ms": result.time_ms,
+        ":red_team": game.red.team,
+        ":red_build": game.red.build,
+        ":red_remote": game.red.remote,
+        ":black_team": game.black.team,
+        ":black_build": game.black.build,
+        ":black_remote": game.black.remote,
+        ":winner": name(&result.winner),
+        ":reason": name(&result.reason),
+        ":invalid_red": result.invalid.red,
+        ":invalid_black": result.invalid.black,
+        ":duration_ms": result.duration_ms,
+        ":plies": result.moves.len(),
+        ":opening": to_json(&result.opening)?,
+        ":tournament_id": tournament.map(|t| &t.id),
+        ":tournament_match": tournament.map(|t| &t.match_id),
+        ":tournament_game": tournament.map(|t| t.game),
+        ":record": to_json(game)?,
+    })?;
     let seq = conn.last_insert_rowid();
+    let mut stmt = conn.prepare_cached(sql::INSERT_MOVE)?;
     // L'ouverture a un nombre pair de demi-coups : le rouge joue le premier coup client.
     for (ply, mv) in result.moves.iter().enumerate() {
         let color = if ply % 2 == 0 { Color::Red } else { Color::Black };
-        stmt.execute(params![seq, ply, name(&color), mv, result.move_ms.get(ply)])?;
+        stmt.execute(named_params! {
+            ":game": seq,
+            ":ply": ply,
+            ":color": name(&color),
+            ":move": mv,
+            ":ms": result.move_ms.get(ply),
+        })?;
     }
     Ok(())
 }
 
 fn insert_rating(conn: &Connection, r: &Rating) -> rusqlite::Result<()> {
-    conn.prepare_cached(
-        "INSERT INTO ratings (game_id, team, all_rating, all_delta, session_rating, session_delta)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-    )?
-    .execute(params![r.game, r.team, r.all[0], r.all[1], r.session[0], r.session[1]])?;
+    conn.prepare_cached(sql::INSERT_RATING)?.execute(named_params! {
+        ":game_id": r.game,
+        ":team": r.team,
+        ":all_rating": r.all[0],
+        ":all_delta": r.all[1],
+        ":session_rating": r.session[0],
+        ":session_delta": r.session[1],
+    })?;
     Ok(())
 }
 

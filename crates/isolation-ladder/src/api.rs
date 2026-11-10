@@ -1,13 +1,15 @@
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Context;
 use axum::Router;
 use axum::body::{Body, to_bytes};
-use axum::extract::{DefaultBodyLimit, State};
-use axum::http::HeaderMap;
-use axum::http::header::AUTHORIZATION;
+use axum::extract::{DefaultBodyLimit, Path as UrlPath, State};
+use axum::http::header::{AUTHORIZATION, CACHE_CONTROL, CONTENT_TYPE};
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, put};
 use http_body_util::LengthLimitError;
 use tokio::net::TcpListener;
@@ -17,6 +19,7 @@ use tokio::task::spawn_blocking;
 use isolation_core::remote::PATH as REMOTE_PATH;
 
 use crate::arena::Arena;
+use crate::db::Db;
 use crate::hub::Hub;
 use crate::remote::{self, Registry, Remote};
 use crate::spectate;
@@ -42,6 +45,7 @@ pub fn serve(arena: &Arc<Arena>, hub: &Arc<Hub>, registry: Option<&Arc<Registry>
             .or_default()
             .push("soumissions : PUT http://{}/api/submit");
     }
+    router = router.merge(read_routes(cfg.db.clone()));
     if let Some(live) = &cfg.live {
         router = router.merge(
             Router::new()
@@ -96,6 +100,32 @@ fn submit_routes(submissions: Arc<Submissions>) -> Router {
         .with_state(submissions)
 }
 
+/// Lectures publiques de la base, chacune sur sa propre connexion en lecture seule.
+fn read_routes(db: PathBuf) -> Router {
+    Router::new()
+        .route("/api/games/{id}", get(game))
+        .with_state(Arc::new(db))
+}
+
+async fn game(State(db): State<Arc<PathBuf>>, UrlPath(id): UrlPath<String>) -> Response {
+    match blocking(move || Db::open_read(&db)?.game_json(&id)).await {
+        // Une partie finie ne change plus : un CDN peut la garder indéfiniment.
+        Ok(Some(json)) => (
+            [
+                (CONTENT_TYPE, "application/json"),
+                (CACHE_CONTROL, "public, max-age=31536000, immutable"),
+            ],
+            json,
+        )
+            .into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, "partie inconnue\n").into_response(),
+        Err(e) => {
+            eprintln!("lecture de la base : {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "base indisponible\n").into_response()
+        }
+    }
+}
+
 async fn not_found() -> SubmitError {
     SubmitError::NotFound
 }
@@ -140,7 +170,6 @@ pub async fn blocking<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'stat
 
 #[cfg(test)]
 mod tests {
-    use axum::http::StatusCode;
 
     use super::*;
 
