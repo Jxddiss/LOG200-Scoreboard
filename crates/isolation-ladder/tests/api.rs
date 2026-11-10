@@ -229,3 +229,30 @@ fn replay_reads_one_game_by_id_and_lets_caches_keep_it() {
 
     assert_eq!(ladder.request("GET", "/api/games/absent", None, b"").0, 404);
 }
+
+#[test]
+fn stats_answer_in_json_for_fifteen_seconds() {
+    let ladder = Ladder::start("stats");
+    let mut stream = TcpStream::connect(&ladder.submit).unwrap();
+    write!(
+        stream,
+        "GET /api/stats/teams?session=api HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+    )
+    .unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    let (head, body) = response.split_once("\r\n\r\n").unwrap();
+    assert!(head.starts_with("HTTP/1.1 200"), "{head}");
+    let head = head.to_ascii_lowercase();
+    assert!(head.contains("content-type: application/json"), "{head}");
+    assert!(head.contains("cache-control: public, max-age=15"), "{head}");
+    let teams: serde_json::Value = serde_json::from_str(body).unwrap();
+    assert_eq!(teams[0]["team"], "a");
+    assert_eq!(teams[1]["losses"]["no_show"], 1);
+
+    assert_eq!(ladder.request("GET", "/api/stats/head-to-head", None, b"").0, 200);
+    assert_eq!(ladder.request("GET", "/api/stats/openings", None, b"").0, 200);
+    assert_eq!(ladder.request("GET", "/api/stats/builds?team=a", None, b"").0, 200);
+    assert_eq!(ladder.request("GET", "/api/stats/builds", None, b"").0, 400);
+    assert_eq!(ladder.request("GET", "/api/stats/inconnue", None, b"").0, 404);
+}

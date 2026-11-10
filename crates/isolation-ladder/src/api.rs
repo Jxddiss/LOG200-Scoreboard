@@ -6,12 +6,13 @@ use std::sync::Arc;
 use anyhow::Context;
 use axum::Router;
 use axum::body::{Body, to_bytes};
-use axum::extract::{DefaultBodyLimit, Path as UrlPath, State};
+use axum::extract::{DefaultBodyLimit, Path as UrlPath, Query, State};
 use axum::http::header::{AUTHORIZATION, CACHE_CONTROL, CONTENT_TYPE};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, put};
 use http_body_util::LengthLimitError;
+use serde::Deserialize;
 use tokio::net::TcpListener;
 use tokio::runtime::Runtime;
 use tokio::task::spawn_blocking;
@@ -19,7 +20,7 @@ use tokio::task::spawn_blocking;
 use isolation_core::remote::PATH as REMOTE_PATH;
 
 use crate::arena::Arena;
-use crate::db::Db;
+use crate::db::{Db, Stat};
 use crate::hub::Hub;
 use crate::remote::{self, Registry, Remote};
 use crate::spectate;
@@ -104,25 +105,52 @@ fn submit_routes(submissions: Arc<Submissions>) -> Router {
 fn read_routes(db: PathBuf) -> Router {
     Router::new()
         .route("/api/games/{id}", get(game))
+        .route("/api/stats/{name}", get(stats))
         .with_state(Arc::new(db))
+}
+
+fn json(cache: &'static str, body: String) -> Response {
+    ([(CONTENT_TYPE, "application/json"), (CACHE_CONTROL, cache)], body).into_response()
+}
+
+fn unavailable(error: &rusqlite::Error) -> Response {
+    eprintln!("lecture de la base : {error}");
+    (StatusCode::INTERNAL_SERVER_ERROR, "base indisponible\n").into_response()
 }
 
 async fn game(State(db): State<Arc<PathBuf>>, UrlPath(id): UrlPath<String>) -> Response {
     match blocking(move || Db::open_read(&db)?.game_json(&id)).await {
         // Une partie finie ne change plus : un CDN peut la garder indéfiniment.
-        Ok(Some(json)) => (
-            [
-                (CONTENT_TYPE, "application/json"),
-                (CACHE_CONTROL, "public, max-age=31536000, immutable"),
-            ],
-            json,
-        )
-            .into_response(),
+        Ok(Some(body)) => json("public, max-age=31536000, immutable", body),
         Ok(None) => (StatusCode::NOT_FOUND, "partie inconnue\n").into_response(),
-        Err(e) => {
-            eprintln!("lecture de la base : {e}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "base indisponible\n").into_response()
-        }
+        Err(e) => unavailable(&e),
+    }
+}
+
+#[derive(Deserialize)]
+struct StatsQuery {
+    session: Option<String>,
+    team: Option<String>,
+}
+
+async fn stats(
+    State(db): State<Arc<PathBuf>>,
+    UrlPath(name): UrlPath<String>,
+    Query(query): Query<StatsQuery>,
+) -> Response {
+    let stat = match name.as_str() {
+        "teams" => Stat::Teams,
+        "head-to-head" => Stat::HeadToHead,
+        "openings" => Stat::Openings,
+        "builds" if query.team.is_some() => Stat::Builds,
+        "builds" => return (StatusCode::BAD_REQUEST, "paramètre team manquant\n").into_response(),
+        _ => return (StatusCode::NOT_FOUND, "statistique inconnue\n").into_response(),
+    };
+    let StatsQuery { session, team } = query;
+    match blocking(move || Db::open_read(&db)?.stats(stat, session.as_deref(), team.as_deref())).await {
+        // Le rythme de rafraîchissement de la page, comme /data.
+        Ok(body) => json("public, max-age=15", body),
+        Err(e) => unavailable(&e),
     }
 }
 

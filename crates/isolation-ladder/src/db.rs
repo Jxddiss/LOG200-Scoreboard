@@ -23,6 +23,26 @@ mod sql {
     pub const CLEAR_RATINGS: &str = include_str!("sql/clear_ratings.sql");
 }
 
+/// Statistiques de `/api/stats`, chacune une requête qui rend directement son JSON.
+#[derive(Clone, Copy)]
+pub enum Stat {
+    Teams,
+    HeadToHead,
+    Openings,
+    Builds,
+}
+
+impl Stat {
+    pub const fn sql(self) -> &'static str {
+        match self {
+            Self::Teams => include_str!("sql/stats_teams.sql"),
+            Self::HeadToHead => include_str!("sql/stats_head_to_head.sql"),
+            Self::Openings => include_str!("sql/stats_openings.sql"),
+            Self::Builds => include_str!("sql/stats_builds.sql"),
+        }
+    }
+}
+
 pub struct Db {
     conn: Connection,
 }
@@ -96,6 +116,19 @@ impl Db {
         let mut stmt = self.conn.prepare_cached(sql::GAME)?;
         let mut rows = stmt.query(named_params! { ":id": id })?;
         rows.next()?.map(|r| r.get(0)).transpose()
+    }
+
+    /// `session` absente : toutes les sessions hors tournois. `team` ne sert qu'à `Stat::Builds`.
+    pub fn stats(&self, which: Stat, session: Option<&str>, team: Option<&str>) -> rusqlite::Result<String> {
+        let mut stmt = self.conn.prepare_cached(which.sql())?;
+        // SQLite refuse un paramètre nommé absent de la requête.
+        for (name, value) in [(":session", session), (":team", team)] {
+            if let Some(index) = stmt.parameter_index(name)? {
+                stmt.raw_bind_parameter(index, value)?;
+            }
+        }
+        let mut rows = stmt.raw_query();
+        rows.next()?.map_or(Ok("[]".into()), |r| r.get(0))
     }
 
     /// Migration depuis l'ancien `games.jsonl` : tout en une transaction, lignes illisibles ignorées.
@@ -311,5 +344,115 @@ pub(crate) mod tests {
             .query_row("SELECT count(*) FROM ratings WHERE team = 'a'", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 2);
+    }
+
+    /// a bat b deux fois (en rouge puis en noir, au temps), bat c dans s2 avec un nouveau build,
+    /// et perd contre b en tournoi.
+    fn league() -> Db {
+        let db = memory();
+        let mut g1 = game("g1", "a", "b", Color::Red);
+        g1.red.build = Some("h1".into());
+        g1.ts = "2026-10-24T12:00:00.000Z".into();
+        let mut g2 = game("g2", "b", "a", Color::Black);
+        g2.black.build = Some("h1".into());
+        g2.result.reason = Reason::Timeout;
+        g2.result.opening = vec!["A1-B2-C3".into(), "D4-E5-F6".into()];
+        g2.result.moves = vec!["F4-F6-F10".into(), "I1-F4-A7".into()];
+        g2.ts = "2026-10-24T13:00:00.000Z".into();
+        let mut g3 = game("g3", "a", "c", Color::Red);
+        g3.red.build = Some("h2".into());
+        g3.session = "s2".into();
+        g3.ts = "2026-10-25T12:00:00.000Z".into();
+        let mut g4 = game("g4", "a", "b", Color::Black);
+        g4.session = "t1".into();
+        g4.tournament = Some(TournamentGame {
+            id: "t1".into(),
+            match_id: "W1".into(),
+            game: 1,
+        });
+        for g in [g1, g2, g3, g4] {
+            db.insert_game(&g).unwrap();
+        }
+        db
+    }
+
+    fn stat(db: &Db, stat: Stat, session: Option<&str>, team: Option<&str>) -> serde_json::Value {
+        serde_json::from_str(&db.stats(stat, session, team).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn team_records_leave_tournaments_out_of_the_all_sessions_scope() {
+        let db = league();
+        let teams = stat(&db, Stat::Teams, None, None);
+        assert_eq!(
+            teams,
+            serde_json::json!([
+                {"team": "a", "games": 3, "wins": 3, "red": {"games": 2, "wins": 2},
+                 "black": {"games": 1, "wins": 1}, "losses": {}},
+                {"team": "b", "games": 2, "wins": 0, "red": {"games": 1, "wins": 0},
+                 "black": {"games": 1, "wins": 0}, "losses": {"no_moves": 1, "timeout": 1}},
+                {"team": "c", "games": 1, "wins": 0, "red": {"games": 0, "wins": 0},
+                 "black": {"games": 1, "wins": 0}, "losses": {"no_moves": 1}},
+            ])
+        );
+        let tournament = stat(&db, Stat::Teams, Some("t1"), None);
+        assert_eq!(tournament[0]["team"], "b");
+        assert_eq!(tournament[0]["wins"], 1);
+        assert_eq!(stat(&db, Stat::Teams, Some("s1"), None).as_array().unwrap().len(), 2);
+        assert_eq!(stat(&db, Stat::Teams, Some("absente"), None), serde_json::json!([]));
+    }
+
+    #[test]
+    fn head_to_head_counts_each_pair_once() {
+        let db = league();
+        assert_eq!(
+            stat(&db, Stat::HeadToHead, None, None),
+            serde_json::json!([
+                {"a": "a", "b": "b", "games": 2, "a_wins": 2, "b_wins": 0},
+                {"a": "a", "b": "c", "games": 1, "a_wins": 1, "b_wins": 0},
+            ])
+        );
+    }
+
+    #[test]
+    fn openings_and_first_moves_carry_their_win_rates() {
+        let db = league();
+        let openings = stat(&db, Stat::Openings, None, None);
+        assert_eq!(
+            openings["openings"],
+            serde_json::json!([
+                {"opening": ["G1-I1-C12", "F12-D10-F1"], "games": 2, "red_wins": 2},
+                {"opening": ["A1-B2-C3", "D4-E5-F6"], "games": 1, "red_wins": 0},
+            ])
+        );
+        assert_eq!(
+            openings["first_moves"]["red"],
+            serde_json::json!([
+                {"move": "I1-F4-A7", "games": 2, "wins": 2},
+                {"move": "F4-F6-F10", "games": 1, "wins": 0},
+            ])
+        );
+        assert_eq!(openings["first_moves"]["black"][0]["move"], "D10-C10-I7");
+        assert_eq!(
+            openings["first_moves"]["black"][1],
+            serde_json::json!({"move": "I1-F4-A7", "games": 1, "wins": 1})
+        );
+    }
+
+    #[test]
+    fn builds_follow_the_order_they_first_played() {
+        let db = league();
+        assert_eq!(
+            stat(&db, Stat::Builds, None, Some("a")),
+            serde_json::json!([
+                {"build": "h1", "games": 2, "wins": 2, "first": "2026-10-24T12:00:00.000Z", "last": "2026-10-24T13:00:00.000Z"},
+                {"build": "h2", "games": 1, "wins": 1, "first": "2026-10-25T12:00:00.000Z", "last": "2026-10-25T12:00:00.000Z"},
+            ])
+        );
+        assert_eq!(
+            stat(&db, Stat::Builds, Some("s2"), Some("a")).as_array().unwrap().len(),
+            1
+        );
+        assert_eq!(stat(&db, Stat::Builds, None, Some("b")), serde_json::json!([]));
     }
 }
