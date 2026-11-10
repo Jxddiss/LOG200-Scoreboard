@@ -37,7 +37,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && apt-get update && apt-get install -y --no-install-recommends "runsc=${RUNSC_VERSION}"
 
 FROM docker:29.9.2-dind-alpine3.24
-RUN apk add --no-cache bash procps
+RUN apk add --no-cache bash procps sqlite
 # runsc cherche ses binaires annexes dans gvisor-bin/, a cote de lui.
 COPY --from=gvisor /usr/bin/runsc /usr/local/bin/runsc
 COPY --from=gvisor /usr/bin/gvisor-bin /usr/local/bin/gvisor-bin

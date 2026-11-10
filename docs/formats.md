@@ -1,6 +1,6 @@
 # Ladder Isolation : contrat de l'arbitre et format des parties
 
-Le ladder dépend de deux interfaces. La première permet de remplacer notre arbitre (`isolation-referee`) par une autre implémentation, par exemple la CLI C++ du serveur officiel. La seconde est le fichier des parties, dont le ladder tire aussi ce que lit la page web. Les deux sont en version 1.
+Le ladder dépend de deux interfaces. La première permet de remplacer notre arbitre (`isolation-referee`) par une autre implémentation, par exemple la CLI C++ du serveur officiel. La seconde est le format des parties, que le ladder enregistre dans sa base SQLite et dont il tire aussi ce que lit la page web. Les deux sont en version 1. Les routes HTTP sont décrites dans [api.md](api.md).
 
 ```mermaid
 flowchart LR
@@ -8,7 +8,7 @@ flowchart LR
     referee["arbitre<br/>(isolation-referee ou autre)"]
     red[client rouge]
     black[client noir]
-    jsonl[(data/games.jsonl)]
+    db[(state/ladder.db)]
     page[("data/summary.json<br/>data/teams/<br/>data/live.json")]
     web[web/index.html]
 
@@ -18,10 +18,10 @@ flowchart LR
     red <-- TCP --> referee
     black <-- TCP --> referee
     referee -- "événements, puis 1 objet JSON (stdout)" --> ladder
-    ladder -- ajoute une ligne --> jsonl
+    ladder -- ajoute une partie --> db
     ladder -- classement, historiques --> page
     page -- fetch --> web
-    jsonl -- "une partie (Range)" --> web
+    db -- "une partie (/api/games), stats (/api/stats)" --> web
 ```
 
 ## Contrat de l'arbitre
@@ -117,9 +117,9 @@ Si une autre implémentation n'écrit pas `LISTENING` ni `CONNECTED red`, il suf
 
 Avant d'enregistrer un résultat, le ladder rejoue la partie avec notre moteur ; un coup illégal ou un gagnant incohérent la fait rejeter.
 
-## Fichier des parties (`data/games.jsonl`)
+## Base des parties (`state/ladder.db`)
 
-Une ligne JSON par partie terminée, en ajout seul. Chaque ligne reprend l'objet résultat avec les champs ajoutés par le ladder :
+Le ladder enregistre chaque partie terminée dans une base SQLite, `db` dans `ladder.toml` (`state/ladder.db` par défaut). Elle n'est pas dans `data/`, que la page sert tel quel, parce qu'elle contient aussi le journal des soumissions. Une partie y est un objet JSON, l'objet résultat complété par les champs du ladder, que `GET /api/games/{id}` renvoie tel quel :
 
 ```json
 {
@@ -144,20 +144,30 @@ Une ligne JSON par partie terminée, en ajout seul. Chaque ligne reprend l'objet
 - `anchor` (absent par défaut) : joueur de référence dont le rating reste à 1500. Sans ancre, le classement est relatif entre les équipes.
 - `remote` (absent par défaut) : l'équipe a joué depuis sa propre machine. Le serveur n'a pas vu son code, et `build` est celui qu'elle déclare.
 - `tournament` (absent par défaut) : `{"id": "tournoi-2026-11-08", "match": "W3", "game": 2}`, partie d'un tournoi hebdomadaire (voir [spec-tournoi-hebdo.md](spec-tournoi-hebdo.md)) : id du tournoi, match du tableau et numéro de la manche.
-- Chaque ligne part en une seule écriture suivie d'un flush. Un lecteur peut donc tomber sur une dernière ligne incomplète ; la page et `isolation-check` l'ignorent, comme les versions inconnues.
+Le schéma est dans [`crates/isolation-ladder/src/sql/schema.sql`](../crates/isolation-ladder/src/sql/schema.sql) ; sa version est dans `PRAGMA user_version` (1). Les tables :
+
+| Table | Une ligne par | Contenu |
+| --- | --- | --- |
+| `games` | partie | `seq` (ordre de jeu), `id`, l'objet complet dans `record`, et ses champs en colonnes pour les requêtes : `session`, `ts`, `time_ms`, `red_team`, `red_build`, `red_remote`, `black_*`, `winner`, `reason`, `invalid_red`, `invalid_black`, `duration_ms`, `plies` (coups clients), `opening` (JSON), `tournament_id`, `tournament_match`, `tournament_game`. |
+| `moves` | coup client | `game` (le `seq` de la partie), `ply` (0 pour le premier coup client, joué par le rouge), `color`, `move`, `ms` (temps de réflexion, absent chez d'autres arbitres). |
+| `ratings` | équipe et partie | `game_id`, `team`, `all_rating`, `all_delta`, `session_rating`, `session_delta` : comme `all` et `session` des lignes de la page (plus bas). Recalculée au démarrage. |
+| `submissions` | soumission de jar | `ts`, `team`, `hash`, `verdict` (`accepted`, `rejected` ou `error`) et `detail` (raison d'un refus). |
+
+- Au démarrage, une base sans partie importe l'ancien fichier `out` (`data/games.jsonl`, une partie par ligne au format ci-dessus) puis le renomme en `games.jsonl.migrated`. `jars/submissions.jsonl` suit le même chemin vers `submissions`. Les lignes illisibles sont ignorées et signalées.
+- La base est en mode WAL : un lecteur (`sqlite3`, l'API) ne bloque pas le ladder. Pour une copie cohérente, passer par `.backup` (voir [deploy/README.md](../deploy/README.md#au-quotidien)).
 
 ## Fichiers de la page (`data/summary.json`, `data/teams/`, `data/timeline.jsonl`, `data/live.json`, `data/queue.json`, `data/model.json`)
 
-La page ne lit jamais `games.jsonl` en entier : en fin de session, il pèse des centaines de Mo. Le ladder calcule le classement Elo et les temps par coup, et publie à côté de `games.jsonl` :
+La page ne lit jamais toutes les parties : en fin de session, elles pèsent des centaines de Mo. Le ladder calcule le classement Elo et les temps par coup, et publie dans `data/` :
 
 - `summary.json`, réécrit après chaque partie (fichier temporaire puis renommage) :
   - `sessions` : la plus récente d'abord ;
   - `builds` : builds de chaque équipe dans l'ordre d'apparition, pour le badge vN ;
   - `scopes` : `""` pour toutes les sessions, puis une clé par session. Chacune donne `games` (nombre), `time_ms` (temps alloués), `ratings` (classement, meilleur d'abord) et `recent` (50 dernières parties).
   - `verified` : mêmes clés et même forme que `scopes`, mais sans les parties où un côté est `remote` : l'Elo y est recalculé sur les seules parties jouées sur le serveur. Absent tant qu'aucune partie distante n'a été jouée ; la page n'affiche sa case "Vérifiées seulement" qu'à partir de là.
-- `teams/<équipe>.jsonl` : une ligne par partie de l'équipe, en ajout seul comme `games.jsonl`. La page le suit quand la recherche désigne une seule équipe : courbe Elo et liste de ses parties.
+- `teams/<équipe>.jsonl` : une ligne par partie de l'équipe, en ajout seul. La page le suit quand la recherche désigne une seule équipe : courbe Elo et liste de ses parties.
 - `timeline.jsonl` : une ligne par partie, toutes équipes, en ajout seul. Elle ne garde que `v`, `id`, `ts`, `session`, `red` et `black` d'une ligne de partie, plus `tournament: true` pour une partie de tournoi (absent sinon) : assez pour rejouer les ratings de toutes les équipes, ce que fait la page graphe pour calculer les rangs.
-- `live.json`, réécrit au lancement et à la fin de chaque partie (fichier temporaire puis renommage) : `{"v": 1, "games": [{"id": "20261024T142103.512Z-eq07-eq12", "red": "eq07", "black": "eq12", "since": "2026-10-24T14:20:48.103Z"}]}`, une entrée par partie en cours, la plus ancienne d'abord. `since` compte l'attente d'un slot, qu'un smoke test peut occuper. `id` (absent tant que la partie attend son slot) est celui qu'elle aura dans `games.jsonl` : la page s'en sert pour la suivre en direct. Une partie de tournoi porte aussi `tournament` (comme dans `games.jsonl`). Le ladder le vide au démarrage.
+- `live.json`, réécrit au lancement et à la fin de chaque partie (fichier temporaire puis renommage) : `{"v": 1, "games": [{"id": "20261024T142103.512Z-eq07-eq12", "red": "eq07", "black": "eq12", "since": "2026-10-24T14:20:48.103Z"}]}`, une entrée par partie en cours, la plus ancienne d'abord. `since` compte l'attente d'un slot, qu'un smoke test peut occuper. `id` (absent tant que la partie attend son slot) est celui qu'elle aura dans la base : la page s'en sert pour la suivre en direct. Une partie de tournoi porte aussi `tournament` (comme dans la base). Le ladder le vide au démarrage.
 - `queue.json`, réécrit à chaque paire lancée, annoncée ou annulée (fichier temporaire puis renommage) : la file équitable des équipes du roster, la prochaine à jouer d'abord, et les paires annoncées. `{"v": 1, "teams": [{"id": "eq04", "ahead": 0, "bot": false}], "next": [{"teams": ["eq07", "niveau-2"], "at": "2026-11-05T14:21:00.000Z"}]}`. Le ladder tire la paire suivante d'un slot dès que ses deux parties sont jouées, au début de la pause (`pause_s`), et la lance à `at` : l'annonce est exacte. Elle tombe si une de ses équipes soumet un nouveau jar, quitte le roster ou part en tournoi, ou si le tournoi prend le slot. `ahead` est l'avance de l'équipe sur l'horloge de la file, en parties, celles d'un bot comptant double (négative pour une équipe qui rattrape, au plus 20 de retard). La page la dessine en arbre au clic sur l'en-tête « Dernière » du classement. Absent tant qu'aucune paire n'a été lancée.
 - `tournaments/<id>.json`, réécrit au tirage, au lancement et à la fin de chaque partie du tournoi (voir [spec-tournoi-hebdo.md](spec-tournoi-hebdo.md)) :
   - le tirage : `id`, `ts`, `session`, `time_ms`, `seed` (graine des ouvertures) et `entrants`, meilleure tête de série d'abord (`team`, `build`, `rating` au tirage, `multithread`), puis les entrées de la durée prévue : `game_ms` (durées des 50 dernières parties de la session, ramenées au temps par coup du tournoi) et `slots` (slots ordinaires puis multithread) ;
@@ -187,22 +197,21 @@ Une ligne de partie (dans `recent` et `teams/`) reprend la partie sans les coups
   "session": "ladder-2026-11", "time_ms": 500, "winner": "red", "reason": "no_moves",
   "moves": 48, "duration_ms": 15100,
   "red": { "team": "eq07", "build": "3fa9c2d1e0b4a7f6", "all": [1520.0, 20.0], "session": [1520.0, 20.0] },
-  "black": { "team": "eq12", "all": [1480.0, -20.0], "session": [1480.0, -20.0] },
-  "at": [0, 912]
+  "black": { "team": "eq12", "all": [1480.0, -20.0], "session": [1480.0, -20.0] }
 }
 ```
 
 - `all` et `session` : rating après la partie et variation, toutes sessions confondues puis dans la session de la partie.
-- `remote` (absent par défaut) : comme dans `games.jsonl`.
+- `remote` (absent par défaut) : comme dans la base.
 - `verified` (absent par défaut) : `{"all": [...], "session": [...]}`, les ratings du classement sans parties distantes, seulement s'ils diffèrent de `all` et `session`. Absent d'une partie vérifiée, ils leur sont égaux ; une partie distante n'en a jamais, et la page l'écarte quand la case est cochée.
-- `tournament` (absent par défaut) : comme dans `games.jsonl`. Une partie de tournoi ne compte que dans sa session : la portée `""` (toutes sessions) ne la voit pas, et son `all` vaut `[rating inchangé, 0]`.
-- `at` : position et longueur de la ligne complète dans `games.jsonl`. Le replay la lit avec `Range: bytes=<début>-<fin>`.
+- `tournament` (absent par défaut) : comme dans la base. Une partie de tournoi ne compte que dans sa session : la portée `""` (toutes sessions) ne la voit pas, et son `all` vaut `[rating inchangé, 0]`.
+- Le replay lit la partie complète par `GET /api/games/{id}` (voir [api.md](api.md)).
 - Une ligne de `ratings` : `team`, `rating`, `peak` (rating maximal atteint), `games`, `wins`, `losses`, `build_games` et `build_wins` (parties et victoires du build courant, base du % V), `anchor`, `provisional`, `remote` (le build courant a joué au moins une partie à distance : badge "distant"), `build`, `last` (dernière partie), et `pace` (absent sans temps mesurés) : `mean` (moyenne arrondie), `p50`, `p95`, `p99`, `max` et `count` des temps par coup du build courant, `limit` le plus petit temps alloué.
-- Au démarrage, le ladder réécrit `teams/`, `timeline.jsonl` et `summary.json` à partir de `games.jsonl`. Une équipe dont le nom n'est pas fait de lettres, chiffres, `-` et `_` (64 au plus) n'a pas de fichier d'équipe.
+- Au démarrage, le ladder réécrit `teams/`, `timeline.jsonl` et `summary.json`, ainsi que la table `ratings`, à partir de la base. Une équipe dont le nom n'est pas fait de lettres, chiffres, `-` et `_` (64 au plus) n'a pas de fichier d'équipe.
 
 ## Direct (`/api/live`)
 
-Avec `[live]` dans `ladder.toml`, le ladder diffuse les parties en cours (ladder et tournoi, ni les smoke tests ni les parties entre deux bots) par une WebSocket sur `/api/live`, sans authentification : il n'y passe que ce que `games.jsonl` publie de toute façon à la fin de la partie. Tout est en mémoire ; un redémarrage du ladder vide le direct.
+Avec `[live]` dans `ladder.toml`, le ladder diffuse les parties en cours (ladder et tournoi, ni les smoke tests ni les parties entre deux bots) par une WebSocket sur `/api/live`, sans authentification : il n'y passe que ce que `/api/games` publie de toute façon à la fin de la partie. Tout est en mémoire ; un redémarrage du ladder vide le direct.
 
 Le serveur parle seul. Chaque message est un objet JSON avec `v` (version du protocole : 1) et `type` :
 
@@ -211,7 +220,7 @@ Le serveur parle seul. Chaque message est un objet JSON avec `v` (version du pro
 | `snapshot` | `games` | Premier message : toutes les parties en cours. |
 | `started` | `game` | Une partie commence. |
 | `move` | `id`, `n`, `move`, `ms` | Coup client numéro `n` (index dans `moves`, à partir de 0) de la partie `id`. |
-| `ended` | `id`, puis `winner` et `reason`, ou `cancelled: true` | Fin de la partie. Annulée (arbitre en échec, résultat refusé…), elle n'aura pas de ligne dans `games.jsonl`. |
+| `ended` | `id`, puis `winner` et `reason`, ou `cancelled: true` | Fin de la partie. Annulée (arbitre en échec, résultat refusé…), elle ne sera pas dans la base. |
 
 Une partie (`games`, `game`) : `id`, `red`, `black`, `since` (lancement), `time_ms`, `tournament` (absent hors tournoi), `opening`, `moves`, `move_ms`, et `turn_ms` : temps déjà écoulé sur le coup en cours, mesuré par le ladder pour ne pas dépendre de l'horloge du client.
 
@@ -313,7 +322,7 @@ Un jar `Ladder-Threads: 2` joue toutes ses parties dans un slot `multithread`, a
 | 500 | Erreur du ladder pendant le smoke test : réessayer plus tard. |
 | 503 | Ladder en redémarrage : réessayer dans quelques minutes. |
 
-La réponse est un texte court destiné à l'équipe. Chaque soumission est notée dans `jars/submissions.jsonl`, qui n'est pas publié.
+La réponse est un texte court destiné à l'équipe. Chaque soumission est notée dans la table `submissions` de la base, qui n'est pas publiée.
 
 ### Depuis la CI
 
@@ -359,7 +368,7 @@ Pour chaque partie, le relais lance la commande ; le jar se connecte à lui comm
 
 Ce qu'il faut savoir :
 
-- **Rien n'est vérifié.** Le serveur ne voit pas le code, ne limite ni les cœurs ni la mémoire, et le `build` est déclaré par le relais (sha256 du jar lancé, comme sur le serveur : un même jar garde sa version vN). Ces parties portent `remote` (voir `games.jsonl`), la page les marque d'un badge "distant", et sa case "Vérifiées seulement" recalcule l'Elo sans elles.
+- **Rien n'est vérifié.** Le serveur ne voit pas le code, ne limite ni les cœurs ni la mémoire, et le `build` est déclaré par le relais (sha256 du jar lancé, comme sur le serveur : un même jar garde sa version vN). Ces parties portent `remote` (voir "Base des parties"), la page les marque d'un badge "distant", et sa case "Vérifiées seulement" recalcule l'Elo sans elles.
 - **La latence compte dans le temps du jar** : l'arbitre chronomètre au serveur. Le relais mesure l'aller-retour et annonce au jar `T` moins cette marge dans `0 2 12 12 T C` (au moins `T/2`) ; un jar qui ignore `T` n'en profite pas.
 - **Une fois apparié, on joue.** Le message de partie ne nomme pas l'adversaire ; un relais déconnecté ou muet perd par `no_show`, un jar qui plante par `disconnect`. Un relais qui ne lance pas son jar est déconnecté à la fin de la partie.
 
@@ -392,11 +401,12 @@ cargo build --profile bot --bin isolation-bot
 sandbox/build.sh                            # images des bacs a sable
 cp ladder.example.toml ladder.toml          # equipes, temps, session
 target/release/isolation-ladder ladder.toml # Ctrl+C pour arreter, relancer reprend la session
-target/release/isolation-check data/games.jsonl
+sqlite3 state/ladder.db "SELECT record FROM games ORDER BY seq" > parties.jsonl
+target/release/isolation-check parties.jsonl  # rejoue et valide toutes les parties
 npx http-server . -p 8000                   # ou python3 -m http.server 8000
 # puis ouvrir http://localhost:8000/web/
 ```
 
-La page lit le dossier `../data` par défaut (un autre dossier se passe avec `web/?data=URL`) et se rafraîchit toutes les 15 secondes. Les fichiers qu'elle lit sont écrits par le ladder : pour regarder un `games.jsonl` sans lancer de parties, `isolation-ladder ladder.toml --rounds 0` les génère, avec `out` qui pointe vers ce fichier.
+La page lit le dossier `../data` par défaut (un autre dossier se passe avec `web/?data=URL`) et se rafraîchit toutes les 15 secondes. Les fichiers qu'elle lit sont écrits par le ladder : pour regarder un ancien `games.jsonl` sans lancer de parties, `isolation-ladder ladder.toml --rounds 0` l'importe (avec `out` qui pointe vers ce fichier) et les génère. Le replay et les statistiques passent par l'API du ladder (voir [api.md](api.md)) : sans ladder lancé, la page affiche le classement mais n'ouvre pas les parties.
 
-Elle lit les fichiers d'équipe et les parties du replay par morceaux (en-tête `Range`). Un serveur qui ignore `Range`, comme `python3 -m http.server`, renvoie le fichier entier : ça fonctionne, mais sans le gain.
+Elle lit les fichiers d'équipe par morceaux (en-tête `Range`). Un serveur qui ignore `Range`, comme `python3 -m http.server`, renvoie le fichier entier : ça fonctionne, mais sans le gain.

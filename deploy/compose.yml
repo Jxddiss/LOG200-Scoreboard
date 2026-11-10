@@ -19,6 +19,8 @@ services:
       - ./ladder.toml:/srv/ladder.toml:ro
       - ./jars:/srv/jars
       - ./data:/srv/data
+      # Base des parties et des soumissions (state/ladder.db). Privee : ni la page ni Caddy ne la voient.
+      - ./state:/srv/state
       - docker:/var/lib/docker
 
   gateway:

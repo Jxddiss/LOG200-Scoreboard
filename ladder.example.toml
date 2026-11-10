@@ -18,7 +18,11 @@ referee = [
 port = 8888
 time_ms = 500
 session = "ladder-2026-11"
+# Dossier des fichiers de la page (son dossier parent). Un ancien fichier des parties a cet endroit est
+# importe une fois dans db, puis renomme en .migrated.
 out = "data/games.jsonl"
+# Base SQLite des parties et des soumissions. Hors de data/ : la page sert data/ tel quel.
+db = "state/ladder.db"
 # Demi-coups aleatoires en debut de partie (pair). Mettre 0 si un client ignore le plateau initial.
 opening_plies = 2
 

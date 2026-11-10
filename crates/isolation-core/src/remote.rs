@@ -12,7 +12,7 @@ pub const PATH: &str = "/api/remote";
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Message {
-    /// Premier message du client. `build` : comme dans `games.jsonl`, déclaré par l'équipe.
+    /// Premier message du client. `build` : comme dans une partie enregistrée, déclaré par l'équipe.
     Hello {
         v: u32,
         build: String,

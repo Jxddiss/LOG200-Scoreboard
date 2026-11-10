@@ -33,19 +33,20 @@ Pour que chaque push sur `main` soumette le jar, ajouter [`templates/ladder.yml`
 | Pour… | Faire |
 | --- | --- |
 | Suivre les parties | `docker compose logs -f ladder` |
-| Voir les soumissions | `jars/submissions.jsonl` (verdict et raison de chaque refus) |
+| Voir les soumissions | `docker compose exec ladder sqlite3 -readonly state/ladder.db "SELECT ts, team, verdict, detail FROM submissions ORDER BY rowid DESC LIMIT 20"` (verdict et raison de chaque refus) |
+| Interroger les parties | `docker compose exec ladder sqlite3 -readonly state/ladder.db`, ou les statistiques de `/api/stats` (voir `docs/api.md`) |
 | Retirer une équipe | supprimer sa ligne dans `jars/teams.toml` et son dossier `jars/<équipe>/` |
 | Changer le temps par coup | `time_ms` dans `ladder.toml`, puis `docker compose restart ladder` ; les bots `niveau-N` suivent le temps annoncé |
 | Mettre à jour | `docker compose pull && docker compose up -d` |
 | Mettre à jour la page seule (profil `web`) | `docker compose pull web && docker compose up -d web` : le ladder continue |
 | Fixer une version | `SCOREBOARD_TAG=v0.2.0 docker compose up -d` |
-| Arrêter | `docker compose down` (les parties restent dans `data/`) |
+| Arrêter | `docker compose down` (les parties restent dans `state/ladder.db`) |
 | Arrêter tout de suite | `docker compose down -t 0` : la partie en cours est perdue (rejouée si c'est un match de tournoi) |
 
 Redémarrer, mettre à jour ou arrêter n'interrompt aucune partie : le ladder n'en lance plus, finit celles en cours (quelques minutes, 15 au plus), puis s'arrête. Pendant ce temps, une nouvelle soumission reçoit un 503.
-| Sauvegarder | copier `data/games.jsonl` |
+| Sauvegarder | `docker compose exec ladder sqlite3 state/ladder.db ".backup state/sauvegarde.db"`, puis copier `state/sauvegarde.db` hors du serveur. Ne pas copier `ladder.db` pendant que le ladder tourne : la copie peut être incohérente. |
 
-Les journaux des joueurs vont dans `data/logs/`, les jars et les tokens dans `jars/`. La page ne sert ni l'un ni l'autre.
+Les parties et le journal des soumissions sont dans `state/ladder.db` (format dans `docs/formats.md`, "Base des parties"). Un serveur installé avant la base doit ajouter `- ./state:/srv/state` aux volumes du service `ladder` de son `compose.yml` avant de mettre à jour : sans ce volume, le ladder refuse de démarrer plutôt que de perdre ses parties. Au premier démarrage après la mise à jour, le ladder y importe `data/games.jsonl` et `jars/submissions.jsonl`, puis les renomme en `.migrated` : les garder comme sauvegarde, ou les supprimer une fois la base vérifiée. Les journaux des joueurs vont dans `data/logs/`, les jars et les tokens dans `jars/`. La page ne sert ni `state/`, ni `data/logs/`, ni `jars/`.
 
 ## Tournoi hebdomadaire
 
@@ -71,9 +72,9 @@ La section `[thermal]` de `ladder.toml` est un filet de sécurité contre la vra
 
 Hors du périmètre de ce compose : placer le reverse proxy de votre choix (Caddy, Nginx…) devant le port 8080.
 
-Pour un pic de visiteurs (des centaines à la fois), un CDN comme Cloudflare absorbe la charge. Le serveur marque `/data/*` `Cache-Control: public, max-age=15`, le rythme de rafraîchissement de la page. Cloudflare ne met pas en cache les `.json` et `.jsonl` par défaut : ajouter une Cache Rule sur le chemin `/data/*`, "Eligible for cache", durée en cache de l'origine respectée. Le serveur sert alors chaque fichier une fois par 15 s et par point de présence, peu importe l'audience.
+Pour un pic de visiteurs (des centaines à la fois), un CDN comme Cloudflare absorbe la charge. Le serveur marque `/data/*` `Cache-Control: public, max-age=15`, le rythme de rafraîchissement de la page. Cloudflare ne met pas en cache les `.json` et `.jsonl` par défaut : ajouter une Cache Rule sur les chemins `/data/*`, `/api/games/*` et `/api/stats/*`, "Eligible for cache", durée en cache de l'origine respectée. Le serveur sert alors chaque fichier et chaque statistique une fois par 15 s et par point de présence, peu importe l'audience, et chaque partie du replay une seule fois (elle est marquée `immutable`). Sans cette règle, chaque appel à `/api/stats` recalcule la statistique (jusqu'à 0,3 s de CPU sur 50 000 parties).
 
-Attention à `/api/submit` : Cloudflare coupe une requête sans réponse après 100 s (erreur 524), alors qu'un smoke test attend la partie en cours et les soumissions précédentes, ce qui peut prendre plusieurs minutes. Le ladder poursuit quand même : un 524 veut dire "verdict inconnu", pas "refusé" (voir `jars/submissions.jsonl` ou la version affichée sur la page). Pour que la CI reçoive toujours le verdict, faire pointer son `LADDER_URL` vers un nom d'hôte non proxifié (nuage gris dans Cloudflare) qui mène au même serveur.
+Attention à `/api/submit` : Cloudflare coupe une requête sans réponse après 100 s (erreur 524), alors qu'un smoke test attend la partie en cours et les soumissions précédentes, ce qui peut prendre plusieurs minutes. Le ladder poursuit quand même : un 524 veut dire "verdict inconnu", pas "refusé" (voir la table `submissions`, plus haut, ou la version affichée sur la page). Pour que la CI reçoive toujours le verdict, faire pointer son `LADDER_URL` vers un nom d'hôte non proxifié (nuage gris dans Cloudflare) qui mène au même serveur.
 
 ## Direct des parties
 

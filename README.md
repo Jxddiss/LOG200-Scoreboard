@@ -25,7 +25,7 @@ flowchart LR
     API["PUT /api/submit<br>team token"] --> Smoke{"Smoke test<br>vs random bot"}
     Smoke -- fails --> Reason["Rejected, reason<br>sent back"]
     Smoke -- passes --> Ladder["Ladder<br>games in gVisor sandboxes"]
-    Ladder --> Games[("data/games.jsonl<br>ranking: data/summary.json")]
+    Ladder --> Games[("state/ladder.db<br>ranking: data/summary.json")]
     Games --> Page["Page<br>Elo, games, replays"]
 ```
 
@@ -71,7 +71,7 @@ The relay starts the jar for every game and keeps reconnecting until stopped. Th
 | `crates/isolation-core` | Board, game rules as applied by the official server (see `docs/rules.md`), protocol and record formats |
 | `isolation-referee` | Headless referee for one game; speaks the official protocol, prints one JSON result (plus one line per move for the ladder's live view when its output is not a terminal) |
 | `isolation-bot` | Protocol client used for tests and conformance checks; its strategies `aleatoire` and `niveau-1` to `niveau-3` replicate the official server's CPU levels (`crates/isolation-engine/src/cpu.rs`); `niveau-4` and `niveau-5` are our own stronger engines (`crates/isolation-engine/src/engine.rs`) |
-| `isolation-ladder` | Schedules games between teams, appends to `data/games.jsonl`, publishes the Elo ranking the pages read (`data/summary.json`, `data/teams/`, `data/timeline.jsonl`), receives the teams' jars (`PUT /api/submit`, see `docs/formats.md`), streams the games in progress (`/api/live`, `[live]` in `ladder.toml`) and runs the weekly tournament (`[tournament]` in `ladder.toml`, `data/tournaments/`, see `docs/spec-tournoi-hebdo.md`) |
+| `isolation-ladder` | Schedules games between teams, records them in SQLite (`state/ladder.db`, served back by `/api/games` and `/api/stats`, see `docs/api.md`), publishes the Elo ranking the pages read (`data/summary.json`, `data/teams/`, `data/timeline.jsonl`), receives the teams' jars (`PUT /api/submit`, see `docs/formats.md`), streams the games in progress (`/api/live`, `[live]` in `ladder.toml`) and runs the weekly tournament (`[tournament]` in `ladder.toml`, `data/tournaments/`, see `docs/spec-tournoi-hebdo.md`) |
 | `isolation-check` | Replays and validates a JSONL file or an official save (`BOARDGAME 1`) |
 | `isolation-remote` | Relay for a team that plays from its own machine: starts the jar for each game and forwards its lines to the ladder (`/api/remote`, see `docs/formats.md`) |
 | `sandbox/` | gVisor sandboxes for the referee and each player (see `docs/formats.md`) |

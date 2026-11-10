@@ -19,5 +19,6 @@ official-server/
 
 # Donnees du ladder, jars des equipes et config locale
 data/
+state/
 jars/
 ladder.toml
