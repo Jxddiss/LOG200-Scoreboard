@@ -630,11 +630,24 @@ function renderGames(list, rating) {
 }
 
 async function loadGame(row) {
-    const res = await fetch(`${SERVER}/api/games/${encodeURIComponent(row.id)}`)
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const g = await res.json()
+    const g = row.at ? await loadFromJsonl(row.at) : await loadFromApi(row.id)
     if (g.id !== row.id) throw new Error('partie introuvable')
     return g
+}
+
+async function loadFromApi(id) {
+    const res = await fetch(`${SERVER}/api/games/${encodeURIComponent(id)}`)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    return res.json()
+}
+
+// shortcut: ladder d'avant la base (lignes avec `at`), le temps que page et ladder se déploient ; à retirer ensuite.
+async function loadFromJsonl([start, length]) {
+    const res = await fetch(`${DATA}/games.jsonl`, { headers: { Range: `bytes=${start}-${start + length - 1}` } })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const bytes = new Uint8Array(await res.arrayBuffer())
+    const line = res.status === 200 ? bytes.subarray(start, start + length) : bytes
+    return JSON.parse(new TextDecoder().decode(line))
 }
 
 // Un échec (API injoignable, partie pas encore en base) est réessayé au rafraîchissement suivant.
