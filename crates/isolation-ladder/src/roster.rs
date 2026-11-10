@@ -129,4 +129,36 @@ mod tests {
         let multithread_only: Config = format!("{MINIMAL}[[slot]]\nmultithread = true\n").parse().unwrap();
         assert!(multithread_game(&multithread_only, &single, &single));
     }
+
+    #[test]
+    fn registered_team_named_like_a_fixed_team_is_reported_once() {
+        let dir = std::env::temp_dir().join(format!("isolation-roster-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let toml = format!(
+            "referee = [\"r\"]\ntime_ms = 100\nsession = \"s\"\n\
+             [submit]\nteams = {teams:?}\njars = {jars:?}\n\
+             [[team]]\nid = \"niveau-1\"\ncmd = [\"bot\"]\n",
+            teams = dir.join("teams.toml"),
+            jars = dir.join("jars"),
+        );
+        let cfg: Config = toml.parse().unwrap();
+        let submit = cfg.submit.clone().unwrap();
+        for id in ["niveau-1", "eq01", submit::SMOKE_OPPONENT] {
+            let id: TeamId = id.parse().unwrap();
+            submit::add_team(&submit.teams, id.clone()).unwrap();
+            let jar = submit.current_jar(&id);
+            std::fs::create_dir_all(jar.parent().unwrap()).unwrap();
+            std::fs::write(jar, "").unwrap();
+        }
+        let mut warned = HashSet::new();
+        for _ in 0..2 {
+            let ids: Vec<String> = roster(&cfg, None, &mut warned).into_iter().map(|t| t.id).collect();
+            assert_eq!(ids, ["niveau-1", "eq01", submit::SMOKE_OPPONENT]);
+        }
+        assert_eq!(
+            warned,
+            HashSet::from(["niveau-1".into(), submit::SMOKE_OPPONENT.into()])
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
