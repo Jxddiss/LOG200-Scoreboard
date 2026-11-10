@@ -19,6 +19,13 @@ mod support;
 const LADDER: &str = env!("CARGO_BIN_EXE_isolation-ladder");
 const MAX_JAR_MB: u64 = 1;
 const REGISTRY: &str = "jars/teams.toml";
+/// Imported from the old `games.jsonl` at startup, served back by the replay.
+const GAME: &str = concat!(
+    r#"{"id":"g1","session":"api","ts":"2026-10-25T00:35:15.441Z","red":{"team":"a"},"black":{"team":"b"},"#,
+    r#""v":1,"time_ms":500,"opening":[],"moves":[],"winner":"red","reason":"no_show","#,
+    r#""invalid":{"red":0,"black":0},"duration_ms":10}"#,
+    "\n"
+);
 
 struct Ladder {
     _process: support::Killed,
@@ -32,7 +39,8 @@ impl Ladder {
     fn start(name: &str) -> Self {
         let dir = std::env::temp_dir().join(format!("isolation-api-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
+        fs::create_dir_all(dir.join("data")).unwrap();
+        fs::write(dir.join("data/games.jsonl"), GAME).unwrap();
         fs::write(
             dir.join("ladder.toml"),
             format!(
@@ -196,4 +204,28 @@ fn remote_accepts_only_a_team_token() {
     );
     let (_, response) = tungstenite::connect(request).unwrap();
     assert_eq!(response.status(), 101);
+}
+
+#[test]
+fn replay_reads_one_game_by_id_and_lets_caches_keep_it() {
+    let ladder = Ladder::start("replay");
+    let mut stream = TcpStream::connect(&ladder.submit).unwrap();
+    write!(
+        stream,
+        "GET /api/games/g1 HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+    )
+    .unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    let (head, body) = response.split_once("\r\n\r\n").unwrap();
+    assert!(head.starts_with("HTTP/1.1 200"), "{head}");
+    let head = head.to_ascii_lowercase();
+    assert!(head.contains("content-type: application/json"), "{head}");
+    assert!(
+        head.contains("cache-control: public, max-age=31536000, immutable"),
+        "{head}"
+    );
+    assert_eq!(format!("{body}\n"), GAME);
+
+    assert_eq!(ladder.request("GET", "/api/games/absent", None, b"").0, 404);
 }
