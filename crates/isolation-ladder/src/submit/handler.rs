@@ -8,7 +8,6 @@ use std::time::{Duration, Instant};
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use serde::Serialize;
 use thiserror::Error;
 
 use isolation_core::digest::short_hash;
@@ -19,7 +18,7 @@ use super::manifest::{self, BadThreads};
 use super::smoke::{Forfeit, Verdict, smoke_test};
 use crate::arena::{Arena, GameError};
 use crate::config::SubmitConfig;
-use crate::store::append_jsonl;
+use crate::db::{Db, Submission};
 use crate::sync::lock;
 use crate::team_id::TeamId;
 
@@ -219,19 +218,21 @@ impl Submissions {
             Err(error) => (LogVerdict::Error, error.to_string()),
         };
         eprintln!("soumission {team} {hash} : {} {detail}", <&str>::from(verdict));
-        let line = LogLine {
+        let row = Submission {
             ts: now_rfc3339(),
-            team,
-            hash,
-            verdict,
-            detail: &detail,
+            team: team.to_string(),
+            hash: hash.to_owned(),
+            verdict: <&str>::from(verdict).to_owned(),
+            detail,
         };
-        let _ = append_jsonl(&self.submit.jars.join("submissions.jsonl"), &line);
+        let path = &self.arena.config().db;
+        if let Err(e) = Db::open(path).and_then(|db| db.insert_submission(&row)) {
+            eprintln!("soumission non journalisée dans {} : {e}", path.display());
+        }
     }
 }
 
-#[derive(Serialize, Clone, Copy)]
-#[serde(into = "&str")]
+#[derive(Clone, Copy)]
 enum LogVerdict {
     Accepted,
     Rejected,
@@ -246,15 +247,6 @@ impl From<LogVerdict> for &'static str {
             LogVerdict::Error => "error",
         }
     }
-}
-
-#[derive(Serialize)]
-struct LogLine<'a> {
-    ts: String,
-    team: &'a TeamId,
-    hash: &'a str,
-    verdict: LogVerdict,
-    detail: &'a str,
 }
 
 const fn max_bytes(max_mb: u64) -> u64 {
@@ -288,9 +280,10 @@ mod tests {
     fn submissions(name: &str) -> (Submissions, String) {
         let dir = temp_dir(name);
         let toml = format!(
-            "referee = [\"isolation-arbitre-absent\"]\ntime_ms = 100\nsession = \"s\"\nout = {out:?}\n\
+            "referee = [\"isolation-arbitre-absent\"]\ntime_ms = 100\nsession = \"s\"\nout = {out:?}\ndb = {db:?}\n\
              [submit]\nteams = {teams:?}\njars = {jars:?}\nmax_jar_mb = 1\n",
             out = dir.join("games.jsonl"),
+            db = dir.join("ladder.db"),
             teams = dir.join("teams.toml"),
             jars = dir.join("jars"),
         );
@@ -305,6 +298,14 @@ mod tests {
 
     fn team() -> TeamId {
         "eq07".parse().unwrap()
+    }
+
+    /// Verdict et détail de chaque soumission journalisée, dans l'ordre.
+    fn logged(submissions: &Submissions) -> Vec<(String, String)> {
+        let db = rusqlite::Connection::open(&submissions.arena.config().db).unwrap();
+        db.prepare("SELECT verdict, detail FROM submissions WHERE team = 'eq07' ORDER BY rowid")
+            .and_then(|mut stmt| stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect())
+            .unwrap_or_default()
     }
 
     #[test]
@@ -340,7 +341,7 @@ mod tests {
         let error = submissions.submit(&team(), &jar).unwrap_err();
         assert!(matches!(error, SubmitError::BadThreads(_)), "{error}");
         assert_eq!(error.status(), StatusCode::BAD_REQUEST);
-        assert!(!submissions.submit.jars.join("submissions.jsonl").exists());
+        assert!(logged(&submissions).is_empty());
     }
 
     #[test]
@@ -365,9 +366,13 @@ mod tests {
         let id: TeamId = "eq07".parse().unwrap();
         let dir = submissions.submit.team_dir(&id);
         assert!(!dir.join(format!("incoming-{}.jar", short_hash(JAR))).exists());
-        let log = fs::read_to_string(submissions.submit.jars.join("submissions.jsonl")).unwrap();
-        assert_eq!(log.lines().count(), 2);
-        assert!(log.contains("\"verdict\":\"error\""));
+        let log = logged(&submissions);
+        assert_eq!(log.len(), 2);
+        assert!(
+            log.iter()
+                .all(|(verdict, detail)| verdict == "error" && !detail.is_empty()),
+            "{log:?}"
+        );
     }
 
     #[test]
@@ -378,7 +383,7 @@ mod tests {
         assert!(matches!(error, SubmitError::Draining), "{error}");
         assert_eq!(error.status(), StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(submissions.arena.smoke_tests(), 0);
-        assert!(!submissions.submit.jars.join("submissions.jsonl").exists());
+        assert!(logged(&submissions).is_empty());
         let team: TeamId = "eq07".parse().unwrap();
         assert_eq!(submissions.limiter().acquire(&team, Instant::now()), Ok(()));
     }

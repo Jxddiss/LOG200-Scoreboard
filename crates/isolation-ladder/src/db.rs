@@ -21,6 +21,8 @@ mod sql {
     pub const INSERT_MOVE: &str = include_str!("sql/insert_move.sql");
     pub const INSERT_RATING: &str = include_str!("sql/insert_rating.sql");
     pub const CLEAR_RATINGS: &str = include_str!("sql/clear_ratings.sql");
+    pub const INSERT_SUBMISSION: &str = include_str!("sql/insert_submission.sql");
+    pub const HAS_SUBMISSIONS: &str = include_str!("sql/has_submissions.sql");
 }
 
 /// Statistiques de `/api/stats`, chacune une requête qui rend directement son JSON.
@@ -53,6 +55,17 @@ pub struct Rating {
     pub team: String,
     pub all: [f64; 2],
     pub session: [f64; 2],
+}
+
+/// Une soumission de jar et son verdict (`accepted`, `rejected` ou `error`), comme l'ancien
+/// `submissions.jsonl`.
+#[derive(serde::Deserialize, Debug, PartialEq, Eq)]
+pub struct Submission {
+    pub ts: String,
+    pub team: String,
+    pub hash: String,
+    pub verdict: String,
+    pub detail: String,
 }
 
 fn name<T: serde::Serialize>(value: &T) -> String {
@@ -153,6 +166,41 @@ impl Db {
             insert_rating(&tx, &rating)?;
         }
         tx.commit()
+    }
+
+    pub fn insert_submission(&self, s: &Submission) -> rusqlite::Result<()> {
+        self.conn
+            .prepare_cached(sql::INSERT_SUBMISSION)?
+            .execute(named_params! {
+                ":ts": s.ts,
+                ":team": s.team,
+                ":hash": s.hash,
+                ":verdict": s.verdict,
+                ":detail": s.detail,
+            })?;
+        Ok(())
+    }
+
+    pub fn has_submissions(&self) -> rusqlite::Result<bool> {
+        self.conn.query_row(sql::HAS_SUBMISSIONS, [], |r| r.get(0))
+    }
+
+    /// Migration depuis l'ancien `submissions.jsonl`, en une transaction. Lignes illisibles ignorées.
+    pub fn import_submissions(&self, path: &Path) -> anyhow::Result<usize> {
+        let text = fs::read_to_string(path)?;
+        let tx = self.conn.unchecked_transaction()?;
+        let mut count = 0;
+        for (index, line) in text.lines().enumerate().filter(|(_, l)| !l.trim().is_empty()) {
+            match serde_json::from_str::<Submission>(line) {
+                Ok(row) => {
+                    self.insert_submission(&row)?;
+                    count += 1;
+                }
+                Err(e) => eprintln!("{} ligne {} ignorée : {e}", path.display(), index + 1),
+            }
+        }
+        tx.commit()?;
+        Ok(count)
     }
 
     pub fn add_ratings(&self, ratings: impl IntoIterator<Item = Rating>) -> rusqlite::Result<()> {
