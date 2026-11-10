@@ -65,13 +65,13 @@ impl Organizer {
             eprintln!("tournoi en cours non repris : {e:#}");
             None
         });
-        if let Some(weekly) = organizer.settings.weekly {
+        if let Some(schedule) = organizer.settings.weekly.clone() {
             let now = now()?;
-            organizer.calendar = Some(Calendar::new(weekly, &now));
-            organizer.due = weekly
+            organizer.due = schedule
                 .missed(&now, Duration::from_hours(organizer.settings.catch_up_h))
                 .map(|slot| slot.date())
                 .filter(|&date| !draw_path(cfg, &tournament_id(date, |_| false)).exists());
+            organizer.calendar = Some(Calendar::new(schedule, &now));
         }
         organizer.publish(cfg);
         Ok(organizer)

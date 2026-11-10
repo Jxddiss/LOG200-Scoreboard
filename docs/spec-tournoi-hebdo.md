@@ -4,7 +4,7 @@ Statut : validée le 2026-10-31, décrit le commit `f3ca389`. Aperçu visuel : h
 
 ## Problème
 
-Le tournoi final du lab compte pour 4 points sur 15, et les équipes ne découvrent son format que le jour même. Chaque dimanche à midi, le ladder joue une répétition de ce tournoi : même format, même temps par coup. Les parties restent consultables après coup.
+Le tournoi final du lab compte pour 4 points sur 15, et les équipes ne découvrent son format que le jour même. Chaque mercredi à 7 h et chaque dimanche à 19 h, le ladder joue une répétition de ce tournoi : même format, même temps par coup. Les parties restent consultables après coup.
 
 Format annoncé par l'enseignant : double élimination, avec un premier tour fort contre faible selon l'Elo, pour envoyer les équipes faibles au repêchage dès le début.
 
@@ -51,7 +51,7 @@ Format annoncé par l'enseignant : double élimination, avec un premier tour for
 
 ```toml
 [tournament]
-weekly = "sun 12:00"   # heure de Montréal (America/Toronto)
+weekly = "wed 07:00, sun 19:00"   # heure de Montréal (America/Toronto), créneaux séparés par des virgules
 time_ms = 5000
 min_teams = 4
 catch_up_h = 2

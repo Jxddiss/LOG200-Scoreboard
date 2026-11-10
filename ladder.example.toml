@@ -110,7 +110,7 @@ listen = "0.0.0.0:8092"
 # Tournoi hebdomadaire en double elimination (docs/spec-tournoi-hebdo.md), entre les equipes qui ont
 # un jar accepte. Sans weekly, il ne part qu'a la main (isolation-ladder tournament start).
 [tournament]
-weekly = "sun 12:00"  # heure de Montreal
+weekly = "wed 07:00, sun 19:00"  # heure de Montreal, creneaux separes par des virgules
 time_ms = 5000
 # min_teams = 4
 # catch_up_h = 2

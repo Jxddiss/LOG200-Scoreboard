@@ -50,7 +50,7 @@ Les parties et le journal des soumissions sont dans `state/ladder.db` (format da
 
 ## Tournoi hebdomadaire
 
-La section `[tournament]` de `ladder.toml` tire un tournoi chaque semaine (`weekly = "sun 12:00"`, heure de Montréal) entre les équipes qui ont un jar accepté : double élimination à 5 s par coup, jars figés au tirage. Le ladder le joue en priorité, puis reprend ses parties ; la page Tournoi montre le tableau. Un créneau manqué de moins de 2 h (ladder arrêté) est rattrapé au démarrage. Règles et fichiers : `docs/spec-tournoi-hebdo.md`.
+La section `[tournament]` de `ladder.toml` tire un tournoi à chaque créneau de `weekly` (`"wed 07:00, sun 19:00"`, heure de Montréal) entre les équipes qui ont un jar accepté : double élimination à 5 s par coup, jars figés au tirage. Le ladder le joue en priorité, puis reprend ses parties ; la page Tournoi montre le tableau. Un créneau manqué de moins de 2 h (ladder arrêté) est rattrapé au démarrage. Règles et fichiers : `docs/spec-tournoi-hebdo.md`.
 
 | Pour… | Faire |
 | --- | --- |

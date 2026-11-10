@@ -11,7 +11,7 @@ use thiserror::Error;
 
 use crate::command::CommandTemplate;
 use crate::team_id::TeamId;
-use crate::tournament::calendar::Weekly;
+use crate::tournament::calendar::Schedule;
 
 /// Une partie détruit au plus une case par coup.
 const MAX_PLIES: u64 = 144;
@@ -255,7 +255,7 @@ impl Default for LiveConfig {
 #[derive(Deserialize, Clone)]
 #[serde(default, deny_unknown_fields)]
 pub struct TournamentConfig {
-    pub weekly: Option<Weekly>,
+    pub weekly: Option<Schedule>,
     pub time_ms: u64,
     pub min_teams: usize,
     pub catch_up_h: u64,
@@ -361,12 +361,15 @@ pub mod tests {
 
     #[test]
     fn tournament_schedule_and_size_are_validated() {
-        let cfg: Config = format!("{MINIMAL}[tournament]\nweekly = \"sun 12:00\"\n")
+        let cfg: Config = format!("{MINIMAL}[tournament]\nweekly = \"wed 07:00, sun 19:00\"\n")
             .parse()
             .unwrap();
         assert_eq!(
-            cfg.tournament.unwrap().weekly.map(|w| w.weekday),
-            Some(jiff::civil::Weekday::Sunday)
+            cfg.tournament
+                .unwrap()
+                .weekly
+                .map(|s| s.0.iter().map(|w| w.weekday).collect()),
+            Some(vec![jiff::civil::Weekday::Wednesday, jiff::civil::Weekday::Sunday])
         );
         let bad = format!("{MINIMAL}[tournament]\nweekly = \"dimanche midi\"\n");
         assert!(matches!(bad.parse::<Config>(), Err(ConfigError::Toml(_))));

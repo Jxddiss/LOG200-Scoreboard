@@ -54,17 +54,49 @@ impl TryFrom<String> for Weekly {
     }
 }
 
+/// Un ou plusieurs créneaux hebdomadaires : `"wed 07:00, sun 19:00"`.
+#[derive(Clone, PartialEq, Eq, Debug, Deserialize)]
+#[serde(try_from = "String")]
+pub struct Schedule(pub Vec<Weekly>);
+
+impl FromStr for Schedule {
+    type Err = BadWeekly;
+
+    fn from_str(text: &str) -> Result<Self, BadWeekly> {
+        text.split(',')
+            .map(|slot| slot.trim().parse())
+            .collect::<Result<_, _>>()
+            .map(Self)
+    }
+}
+
+impl TryFrom<String> for Schedule {
+    type Error = BadWeekly;
+
+    fn try_from(text: String) -> Result<Self, BadWeekly> {
+        text.parse()
+    }
+}
+
+impl Schedule {
+    pub fn next(&self, now: &Zoned) -> Option<Zoned> {
+        self.0.iter().filter_map(|w| w.next(now).ok()).min()
+    }
+
+    pub fn missed(&self, now: &Zoned, catch_up: Duration) -> Option<Zoned> {
+        self.0.iter().filter_map(|w| w.missed(now, catch_up)).max()
+    }
+}
+
 pub struct Calendar {
-    weekly: Weekly,
+    schedule: Schedule,
     next: Option<Zoned>,
 }
 
 impl Calendar {
-    pub fn new(weekly: Weekly, now: &Zoned) -> Self {
-        Self {
-            weekly,
-            next: weekly.next(now).ok(),
-        }
+    pub fn new(schedule: Schedule, now: &Zoned) -> Self {
+        let next = schedule.next(now);
+        Self { schedule, next }
     }
 
     pub fn next(&self) -> Option<&Zoned> {
@@ -73,7 +105,7 @@ impl Calendar {
 
     pub fn due_at(&mut self, now: &Zoned) -> Option<Date> {
         let slot = self.next.take_if(|slot| *slot <= *now)?;
-        self.next = self.weekly.next(now).ok();
+        self.next = self.schedule.next(now);
         Some(slot.date())
     }
 }
@@ -181,7 +213,7 @@ mod tests {
 
     #[test]
     fn the_calendar_fires_once_per_slot() {
-        let mut calendar = Calendar::new(sunday_noon(), &at("2026-11-08T11:00"));
+        let mut calendar = Calendar::new(Schedule(vec![sunday_noon()]), &at("2026-11-08T11:00"));
         assert_eq!(calendar.due_at(&at("2026-11-08T11:59")), None);
         assert_eq!(
             calendar.due_at(&at("2026-11-08T12:00")),
@@ -205,5 +237,23 @@ mod tests {
         );
         assert_eq!(w.missed(&at("2026-11-08T14:30"), two_hours), None);
         assert_eq!(w.missed(&at("2026-11-08T11:00"), two_hours), None);
+    }
+
+    #[test]
+    fn several_slots_fire_in_order() {
+        let schedule: Schedule = "wed 07:00, sun 19:00".parse().unwrap();
+        assert_eq!(schedule.0.len(), 2);
+        assert!("wed 07:00,".parse::<Schedule>().is_err());
+        let mut calendar = Calendar::new(schedule.clone(), &at("2026-11-10T12:00"));
+        assert_eq!(calendar.next(), Some(&at("2026-11-11T07:00")));
+        assert_eq!(
+            calendar.due_at(&at("2026-11-11T07:00")),
+            Some(Date::constant(2026, 11, 11))
+        );
+        assert_eq!(calendar.next(), Some(&at("2026-11-15T19:00")));
+        assert_eq!(
+            schedule.missed(&at("2026-11-15T20:00"), Duration::from_hours(2)),
+            Some(at("2026-11-15T19:00"))
+        );
     }
 }
