@@ -230,7 +230,7 @@ pub(super) mod tests {
     #[test]
     fn draw_freezes_each_jar_and_saves_the_draw() {
         let (dir, cfg) = setup(&["eq03", "eq01", "eq02"]);
-        let standings = Standings::from_history(cfg.data_dir(), &[], &[]).unwrap();
+        let standings = Standings::from_history(cfg.data_dir(), &[], &crate::db::tests::memory()).unwrap();
         let draw = draw(&cfg, &standings, "tournoi-2026-11-08", 42).unwrap().unwrap();
         let names: Vec<&str> = draw.entrants.iter().map(|e| e.team.as_str()).collect();
         assert_eq!(names, ["eq01", "eq02", "eq03"]);
@@ -248,7 +248,7 @@ pub(super) mod tests {
     #[test]
     fn too_few_teams_skip_the_draw() {
         let (dir, cfg) = setup(&["eq01", "eq02"]);
-        let standings = Standings::from_history(cfg.data_dir(), &[], &[]).unwrap();
+        let standings = Standings::from_history(cfg.data_dir(), &[], &crate::db::tests::memory()).unwrap();
         assert!(draw(&cfg, &standings, "tournoi-2026-11-08", 1).unwrap().is_none());
         assert!(!draw_path(&cfg, "tournoi-2026-11-08").exists());
         assert!(preview(&cfg, &standings).unwrap().is_none());
@@ -258,7 +258,7 @@ pub(super) mod tests {
     #[test]
     fn the_preview_seeds_like_the_draw_without_freezing_anything() {
         let (dir, cfg) = setup(&["eq07", "eq03", "eq05", "eq01", "eq06", "eq02", "eq04"]);
-        let standings = Standings::from_history(cfg.data_dir(), &[], &[]).unwrap();
+        let standings = Standings::from_history(cfg.data_dir(), &[], &crate::db::tests::memory()).unwrap();
         let names = |d: &Draw| d.entrants.iter().map(|e| e.team.clone()).collect::<Vec<_>>();
         let preview = preview(&cfg, &standings).unwrap().unwrap();
         assert_eq!((preview.id.as_str(), preview.time_ms), ("apercu", 5000));

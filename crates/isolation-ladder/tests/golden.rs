@@ -50,7 +50,7 @@ fn replaying_history_publishes_the_same_files() {
     assert!(status.success());
 
     let mut published = files(&dir.join("data"));
-    published.remove("games.jsonl");
+    published.remove("games.jsonl.migrated");
     let expected = fixtures.join("expected");
     if std::env::var_os("GOLDEN_UPDATE").is_some() {
         let _ = fs::remove_dir_all(&expected);

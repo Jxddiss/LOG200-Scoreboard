@@ -25,8 +25,12 @@ pub struct Config {
     pub port: u16,
     pub time_ms: u64,
     pub session: String,
+    /// Ancien fichier des parties : son dossier reçoit les fichiers de la page, et il est importé une fois dans `db`.
     #[serde(default = "default_out")]
     pub out: PathBuf,
+    /// Base SQLite, source de vérité. Hors du dossier servi : elle contient les soumissions.
+    #[serde(default = "default_db")]
+    pub db: PathBuf,
     /// Demi-coups aléatoires imposés en début de partie (pair). 0 si un client ignore le plateau initial.
     #[serde(default = "default_opening_plies")]
     pub opening_plies: usize,
@@ -73,6 +77,9 @@ fn default_port() -> u16 {
 }
 fn default_out() -> PathBuf {
     "data/games.jsonl".into()
+}
+fn default_db() -> PathBuf {
+    "state/ladder.db".into()
 }
 fn default_opening_plies() -> usize {
     2

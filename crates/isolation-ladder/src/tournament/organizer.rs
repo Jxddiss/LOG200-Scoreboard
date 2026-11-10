@@ -269,7 +269,7 @@ mod tests {
     #[test]
     fn admin_requests_start_a_tournament_and_resume_a_suspended_match() {
         let (dir, cfg) = draw::tests::setup(&["eq01", "eq02", "eq03", "eq04", "eq05", "eq06"]);
-        let standings = Standings::from_history(cfg.data_dir(), &[], &[]).unwrap();
+        let standings = Standings::from_history(cfg.data_dir(), &[], &crate::db::tests::memory()).unwrap();
         let mut organizer = Organizer::new(&cfg, true, &[]).unwrap();
         admin::send(&cfg, &Request::Start).unwrap();
         organizer.poll(&cfg, &standings, 1);
@@ -297,7 +297,7 @@ mod tests {
     #[test]
     fn the_preview_is_published_then_removed_below_the_minimum() {
         let (dir, cfg) = draw::tests::setup(&["eq01", "eq02", "eq03", "eq04", "eq05", "eq06", "eq07", "eq08"]);
-        let standings = Standings::from_history(cfg.data_dir(), &[], &[]).unwrap();
+        let standings = Standings::from_history(cfg.data_dir(), &[], &crate::db::tests::memory()).unwrap();
         let organizer = Organizer::new(&cfg, true, &[]).unwrap();
         organizer.publish_preview(&cfg, &standings);
         let path = cfg.data_dir().join("tournament-preview.json");
@@ -321,7 +321,7 @@ mod tests {
     #[test]
     fn an_opened_tournament_runs_to_its_winner_then_closes() {
         let (dir, cfg) = draw::tests::setup(&["eq01", "eq02", "eq03", "eq04", "eq05"]);
-        let standings = Standings::from_history(cfg.data_dir(), &[], &[]).unwrap();
+        let standings = Standings::from_history(cfg.data_dir(), &[], &crate::db::tests::memory()).unwrap();
         let mut organizer = Organizer::new(&cfg, true, &[]).unwrap();
         assert!(organizer.pending(&HashSet::new()).is_empty());
         organizer.open(&cfg, &standings, Date::constant(2026, 11, 8), 3);

@@ -7,12 +7,12 @@ use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::fs::{self, File};
 use std::io::{self, BufWriter, ErrorKind, Write};
-use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use isolation_core::board::{ByColor, Color};
 use isolation_core::record::{GameRecord, Player};
 
+use crate::db::Db;
 use crate::model::Model;
 use crate::store::{append_jsonl, write_atomic};
 use view::{PaceView, RatingRow, Row, ScopeView, Side, Summary, Verified};
@@ -304,9 +304,10 @@ impl Standings {
         }
     }
 
-    /// Rejoue l'historique, dans l'ordre du fichier, et réécrit les fichiers d'équipe, la timeline et le résumé.
-    pub fn from_history(dir: &Path, games: &[GameRecord], at: &[Range<u64>]) -> io::Result<Self> {
+    /// Rejoue l'historique dans l'ordre de jeu, et réécrit les fichiers d'équipe, la timeline et le résumé.
+    pub fn from_history(dir: &Path, games: &[GameRecord], db: &Db) -> io::Result<Self> {
         let mut standings = Self::new(dir);
+        let mut ratings = Vec::with_capacity(2 * games.len());
         let teams = dir.join("teams");
         match fs::remove_dir_all(&teams) {
             Err(e) if e.kind() != ErrorKind::NotFound => return Err(e),
@@ -314,8 +315,9 @@ impl Standings {
         }
         let mut files: HashMap<String, BufWriter<File>> = HashMap::new();
         let mut timeline = BufWriter::new(File::create(dir.join("timeline.jsonl"))?);
-        for (game, at) in games.iter().zip(at) {
-            let row = standings.play(game, at.clone());
+        for game in games {
+            let row = standings.play(game);
+            ratings.extend(row.ratings());
             serde_json::to_writer(&mut timeline, &row.tick())?;
             timeline.write_all(b"\n")?;
             for team in [&game.red.team, &game.black.team] {
@@ -334,6 +336,7 @@ impl Standings {
             file.flush()?;
         }
         timeline.flush()?;
+        db.replace_ratings(ratings).map_err(io::Error::other)?;
         standings.write_summary()?;
         let full = &standings.full;
         standings
@@ -367,9 +370,9 @@ impl Standings {
         })
     }
 
-    /// `at` : octets de la partie dans `games.jsonl`.
-    pub fn record(&mut self, game: &GameRecord, at: Range<u64>) -> io::Result<()> {
-        let row = self.play(game, at);
+    pub fn record(&mut self, game: &GameRecord, db: &Db) -> io::Result<()> {
+        let row = self.play(game);
+        db.add_ratings(row.ratings()).map_err(io::Error::other)?;
         for team in [&game.red.team, &game.black.team] {
             if let Some(path) = self.team_path(team) {
                 append_jsonl(&path, &row)?;
@@ -382,7 +385,7 @@ impl Standings {
             .publish_if_due(|team| full.all.teams.get(team).map_or(START, |s| s.rating))
     }
 
-    fn play(&mut self, game: &GameRecord, at: Range<u64>) -> Row {
+    fn play(&mut self, game: &GameRecord) -> Row {
         self.model.add(
             game,
             expected(self.rating(&game.red.team), self.rating(&game.black.team)),
@@ -432,7 +435,6 @@ impl Standings {
             red: side(&game.red, Color::Red),
             black: side(&game.black, Color::Black),
             tournament: game.tournament.clone(),
-            at: [at.start, at.end - at.start],
         };
         self.full.push_recent(&row);
         if !remote {
@@ -572,39 +574,39 @@ mod tests {
         let mut g = game("a", "b", Color::Red);
         g.red.build = Some("v1".into());
         g.red.remote = true;
-        let row = serde_json::to_value(standings.play(&g, 0..1)).unwrap();
+        let row = serde_json::to_value(standings.play(&g)).unwrap();
         assert_eq!(row["red"]["remote"], true);
         assert!(row["black"].get("remote").is_none());
         g.red.remote = false;
-        standings.play(&g, 1..2);
+        standings.play(&g);
         let ratings = standings.full.all.ratings();
         assert!(rating(&ratings, "a").remote);
         assert!(!rating(&ratings, "b").remote);
 
         g.red.build = Some("v2".into());
-        standings.play(&g, 2..3);
+        standings.play(&g);
         assert!(!rating(&standings.full.all.ratings(), "a").remote);
     }
 
     #[test]
     fn verified_ranking_leaves_out_remote_games() {
         let mut standings = Standings::new(Path::new("d"));
-        let first = serde_json::to_value(standings.play(&game("a", "b", Color::Red), 0..1)).unwrap();
+        let first = serde_json::to_value(standings.play(&game("a", "b", Color::Red))).unwrap();
         assert!(first["red"].get("verified").is_none());
         assert!(standings.summary().verified.is_none());
 
         let mut remote = game("c", "a", Color::Black);
         remote.red.remote = true;
-        let row = serde_json::to_value(standings.play(&remote, 1..2)).unwrap();
+        let row = serde_json::to_value(standings.play(&remote)).unwrap();
         assert!(row["black"].get("verified").is_none());
         // a a gagné contre l'équipe distante : seul le classement complet le compte.
-        let after = serde_json::to_value(standings.play(&game("a", "b", Color::Red), 2..3)).unwrap();
+        let after = serde_json::to_value(standings.play(&game("a", "b", Color::Red))).unwrap();
         let (full, verified) = (&after["red"]["all"][0], &after["red"]["verified"]["all"][0]);
         assert!(full.as_f64().unwrap() > verified.as_f64().unwrap());
 
         let mut other = game("x", "y", Color::Red);
         other.session = "s2".into();
-        let untouched = serde_json::to_value(standings.play(&other, 3..4)).unwrap();
+        let untouched = serde_json::to_value(standings.play(&other)).unwrap();
         assert!(untouched["red"].get("verified").is_none());
 
         let summary = serde_json::to_value(standings.summary()).unwrap();
@@ -625,7 +627,7 @@ mod tests {
     #[test]
     fn tournament_games_count_only_in_their_session() {
         let mut standings = Standings::new(Path::new("d"));
-        standings.play(&game("a", "b", Color::Red), 0..1);
+        standings.play(&game("a", "b", Color::Red));
         let before = (standings.rating("a"), standings.rating("b"));
         let mut t = game("b", "a", Color::Red);
         t.session = "tournoi-2026-11-08".into();
@@ -634,7 +636,7 @@ mod tests {
             match_id: "W1".into(),
             game: 1,
         });
-        let row = standings.play(&t, 1..2);
+        let row = standings.play(&t);
         assert_eq!((standings.rating("a"), standings.rating("b")), before);
         assert_eq!(row.black.all, [before.0, 0.0]);
         assert!(row.black.session[1] < 0.0);
@@ -644,7 +646,7 @@ mod tests {
         assert_eq!(summary["scopes"][""]["games"], 1);
         assert_eq!(summary["scopes"][""]["recent"].as_array().unwrap().len(), 1);
         assert_eq!(summary["scopes"]["tournoi-2026-11-08"]["games"], 1);
-        let ladder = standings.play(&game("a", "b", Color::Red), 2..3);
+        let ladder = standings.play(&game("a", "b", Color::Red));
         assert!(serde_json::to_value(ladder.tick()).unwrap().get("tournament").is_none());
     }
 
@@ -654,22 +656,22 @@ mod tests {
         assert_eq!(standings.build("a"), None);
         let mut g = game("a", "b", Color::Red);
         g.red.build = Some("h1".into());
-        standings.play(&g, 0..1);
+        standings.play(&g);
         g.red.build = Some("h2".into());
-        standings.play(&g, 1..2);
+        standings.play(&g);
         assert_eq!(standings.build("a"), Some("h2"));
     }
 
     #[test]
     fn verified_session_ignores_remote_games_and_other_sessions() {
         let mut standings = Standings::new(Path::new("d"));
-        standings.play(&game("a", "b", Color::Red), 0..1);
+        standings.play(&game("a", "b", Color::Red));
         let mut remote = game("b", "a", Color::Red);
         remote.red.remote = true;
-        standings.play(&remote, 0..1);
+        standings.play(&remote);
         let mut elsewhere = game("b", "a", Color::Red);
         elsewhere.session = "s2".into();
-        standings.play(&elsewhere, 0..1);
+        standings.play(&elsewhere);
         let (a, a_order) = standings.verified_session("s1", "a").unwrap();
         let (b, b_order) = standings.verified_session("s1", "b").unwrap();
         assert!(a > b, "{a} {b}");
@@ -682,7 +684,7 @@ mod tests {
         let mut standings = Standings::new(Path::new("d"));
         let mut remote = game("c", "a", Color::Black);
         remote.red.remote = true;
-        standings.play(&remote, 0..1);
+        standings.play(&remote);
         let summary = serde_json::to_value(standings.summary()).unwrap();
         assert_eq!(summary["verified"]["s1"]["games"], 0);
         assert_eq!(summary["verified"][""]["ratings"], serde_json::json!([]));
@@ -714,7 +716,8 @@ mod tests {
     }
 
     #[test]
-    fn files_follow_sessions_builds_and_byte_offsets() {
+    fn files_and_ratings_follow_sessions_and_builds() {
+        let db = crate::db::tests::memory();
         let dir = std::env::temp_dir().join(format!("isolation-standings-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(dir.join("teams")).unwrap();
@@ -722,22 +725,22 @@ mod tests {
 
         let mut g1 = game("a", "b", Color::Red);
         g1.red.build = Some("h1".into());
-        let mut standings =
-            Standings::from_history(&dir, std::slice::from_ref(&g1), std::slice::from_ref(&(0..10))).unwrap();
+        let mut standings = Standings::from_history(&dir, std::slice::from_ref(&g1), &db).unwrap();
         assert!(!dir.join("teams/stale.jsonl").exists());
 
         let mut g2 = game("b", "a", Color::Red);
         g2.session = "s2".into();
         g2.ts = "2026-10-25T12:00:00.000Z".into();
         g2.black.build = Some("h2".into());
-        standings.record(&g2, 10..25).unwrap();
+        let g2_id = g2.id.clone();
+        standings.record(&g2, &db).unwrap();
         assert!((standings.rating("a") - (1520.0 - 22.29)).abs() < 0.01);
         assert_eq!(standings.rating("c"), START);
 
         let lines = fs::read_to_string(dir.join("teams/a.jsonl")).unwrap();
         let rows: Vec<serde_json::Value> = lines.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
         assert_eq!(rows.len(), 2);
-        assert_eq!(rows[1]["at"], serde_json::json!([10, 15]));
+        assert!(rows[1].get("at").is_none());
         // Toutes sessions : a part de 1520 contre 1480. Dans s2, les deux repartent de 1500.
         assert_eq!(rows[1]["black"]["all"][1], serde_json::json!(-22.29));
         assert_eq!(rows[1]["black"]["session"], serde_json::json!([1480.0, -20.0]));
@@ -757,7 +760,17 @@ mod tests {
         assert_eq!(ticks[1]["session"], "s2");
         assert_eq!(ticks[1]["black"], rows[1]["black"]);
         assert!(ticks[1].get("at").is_none());
-        Standings::from_history(&dir, &[g1, g2], &[0..10, 10..25]).unwrap();
+        Standings::from_history(&dir, &[g1, g2], &db).unwrap();
+        let ratings: Vec<(String, String, f64)> = db
+            .conn()
+            .prepare("SELECT game_id, team, all_delta FROM ratings ORDER BY rowid")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(ratings.len(), 4);
+        assert_eq!(ratings[3], (g2_id, "a".into(), -22.29));
         assert_eq!(fs::read_to_string(dir.join("timeline.jsonl")).unwrap(), timeline);
         let _ = fs::remove_dir_all(&dir);
     }

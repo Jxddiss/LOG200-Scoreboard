@@ -552,7 +552,7 @@ pub(super) mod tests {
     #[test]
     fn a_started_tournament_resumes_from_its_games() {
         let (dir, cfg) = draw::tests::setup(&["eq01", "eq02", "eq03", "eq04"]);
-        let standings = Standings::from_history(cfg.data_dir(), &[], &[]).unwrap();
+        let standings = Standings::from_history(cfg.data_dir(), &[], &crate::db::tests::memory()).unwrap();
         let date = jiff::civil::Date::constant(2026, 11, 8);
         let mut live = start(&cfg, &standings, date, 9).unwrap().unwrap();
         assert_eq!(live.draw.id, "tournoi-2026-11-08");

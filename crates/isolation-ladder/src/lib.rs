@@ -6,6 +6,7 @@ mod api;
 mod arena;
 mod command;
 mod config;
+mod db;
 mod hub;
 mod live;
 mod model;
@@ -37,18 +38,18 @@ use rand::{Rng, RngExt};
 
 use isolation_core::board::Move;
 use isolation_core::notation;
-use isolation_core::record::{GameRecord, Jsonl, TournamentGame, rfc3339_at};
+use isolation_core::record::{GameRecord, TournamentGame, rfc3339_at};
 use isolation_core::rules::random_opening;
 
 use arena::{Arena, Fixture, GameError, Sigterm};
 use config::Config;
+use db::Db;
 use hub::Hub;
 use live::Live;
 use remote::Registry;
 use roster::{Team, multithread_game, roster};
 use schedule::{Announcements, Scheduler};
 use standings::Standings;
-use store::append_jsonl;
 use team_id::TeamId;
 use thermal::Thermal;
 use tournament::admin::{self, Request};
@@ -158,17 +159,41 @@ fn warn_if_init() {
     }
 }
 
-/// Matchmaking, classement et tournoi en cours, rebâtis depuis `games.jsonl`.
-fn restore(cfg: &Config, rounds: Option<u64>) -> anyhow::Result<(Scheduler, Standings, Organizer)> {
-    let history = fs::read_to_string(&cfg.out)
-        .map(|text| Jsonl::parse(&text))
-        .unwrap_or_default();
-    let scheduler = Scheduler::from_history(&history.games, &cfg.session);
-    let standings = Standings::from_history(cfg.data_dir(), &history.games, &history.at)
-        .with_context(|| cfg.data_dir().display().to_string())?;
-    let tournaments = Organizer::new(cfg, rounds.is_none(), &history.games)?;
+/// Base ouverte, ancien `games.jsonl` importé puis renommé si elle n'a encore aucune partie.
+fn open_db(cfg: &Config) -> anyhow::Result<Db> {
+    let path = &cfg.db;
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).with_context(|| dir.display().to_string())?;
+    }
+    let db = Db::open(path).with_context(|| path.display().to_string())?;
+    let old = &cfg.out;
+    if old.exists() {
+        if db.is_empty()? {
+            let count = db.import_jsonl(old).with_context(|| old.display().to_string())?;
+            let done = old.with_extension("jsonl.migrated");
+            fs::rename(old, &done).with_context(|| done.display().to_string())?;
+            eprintln!("{count} parties importées de {} dans {}", old.display(), path.display());
+        } else {
+            eprintln!(
+                "ATTENTION : {} ignoré, {} contient déjà des parties",
+                old.display(),
+                path.display()
+            );
+        }
+    }
+    Ok(db)
+}
+
+/// Matchmaking, classement et tournoi en cours, rebâtis depuis la base.
+fn restore(cfg: &Config, rounds: Option<u64>) -> anyhow::Result<(Db, Scheduler, Standings, Organizer)> {
+    let db = open_db(cfg)?;
+    let games = db.games().with_context(|| cfg.db.display().to_string())?;
+    let scheduler = Scheduler::from_history(&games, &cfg.session);
+    let standings =
+        Standings::from_history(cfg.data_dir(), &games, &db).with_context(|| cfg.data_dir().display().to_string())?;
+    let tournaments = Organizer::new(cfg, rounds.is_none(), &games)?;
     tournaments.publish_preview(cfg, &standings);
-    Ok((scheduler, standings, tournaments))
+    Ok((db, scheduler, standings, tournaments))
 }
 
 fn run(path: &Path, rounds: Option<u64>) -> anyhow::Result<()> {
@@ -177,7 +202,7 @@ fn run(path: &Path, rounds: Option<u64>) -> anyhow::Result<()> {
     let cfg = load(path)?;
     let logs = cfg.logs_dir();
     fs::create_dir_all(&logs).with_context(|| logs.display().to_string())?;
-    let (scheduler, mut standings, mut tournaments) = restore(&cfg, rounds)?;
+    let (db, scheduler, mut standings, mut tournaments) = restore(&cfg, rounds)?;
     let mut live = Live::new(cfg.data_dir().to_path_buf()).with_context(|| cfg.data_dir().display().to_string())?;
 
     let (reports, received) = mpsc::channel();
@@ -247,7 +272,7 @@ fn run(path: &Path, rounds: Option<u64>) -> anyhow::Result<()> {
                 game,
             } => {
                 published(live.end(&red, &black));
-                let saved = save(cfg, &mut standings, outcome, &red, &black)?;
+                let saved = save(cfg, &db, &mut standings, outcome, &red, &black)?;
                 tournaments.publish_preview(cfg, &standings);
                 if let Some(game) = game {
                     tournaments.record(cfg, &game, saved.as_ref());
@@ -400,6 +425,7 @@ fn published(written: io::Result<()>) {
 
 fn save(
     cfg: &Config,
+    db: &Db,
     standings: &mut Standings,
     outcome: Result<GameRecord, GameError>,
     red: &str,
@@ -412,8 +438,8 @@ fn save(
             return Ok(None);
         }
     };
-    let at = append_jsonl(&cfg.out, &record).with_context(|| cfg.out.display().to_string())?;
-    if let Err(e) = standings.record(&record, at) {
+    db.insert_game(&record).with_context(|| cfg.db.display().to_string())?;
+    if let Err(e) = standings.record(&record, db) {
         eprintln!("   classement non publié : {e}");
     }
     let result = &record.result;
@@ -690,6 +716,34 @@ mod tests {
             warned,
             HashSet::from(["niveau-1".into(), submit::SMOKE_OPPONENT.into()])
         );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_old_games_file_is_imported_once_then_renamed() {
+        let dir = std::env::temp_dir().join(format!("isolation-migrate-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("data")).unwrap();
+        let toml = format!(
+            "referee = [\"r\"]\ntime_ms = 100\nsession = \"s\"\nout = {out:?}\ndb = {db:?}\n",
+            out = dir.join("data/games.jsonl"),
+            db = dir.join("state/ladder.db"),
+        );
+        let cfg: Config = toml.parse().unwrap();
+        let games = [
+            db::tests::game("g1", "a", "b", isolation_core::board::Color::Red),
+            db::tests::game("g2", "b", "a", isolation_core::board::Color::Black),
+        ];
+        let text: String = games.iter().map(|g| serde_json::to_string(g).unwrap() + "\n").collect();
+        fs::write(&cfg.out, text).unwrap();
+
+        assert_eq!(open_db(&cfg).unwrap().games().unwrap(), games);
+        assert!(!cfg.out.exists());
+        assert!(dir.join("data/games.jsonl.migrated").exists());
+
+        fs::write(&cfg.out, serde_json::to_string(&games[0]).unwrap() + "\n").unwrap();
+        assert_eq!(open_db(&cfg).unwrap().games().unwrap().len(), 2);
+        assert!(cfg.out.exists());
         let _ = fs::remove_dir_all(&dir);
     }
 }

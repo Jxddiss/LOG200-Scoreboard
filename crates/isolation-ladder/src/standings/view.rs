@@ -5,6 +5,8 @@ use serde::Serialize;
 use isolation_core::board::Color;
 use isolation_core::record::{Reason, TournamentGame};
 
+use crate::db::Rating;
+
 #[derive(Serialize, Clone)]
 pub(super) struct Side {
     pub(super) team: String,
@@ -26,7 +28,7 @@ pub(super) struct Verified {
     pub(super) session: [f64; 2],
 }
 
-/// Une partie telle que la page l'affiche, sans les coups : `at` donne ses octets dans `games.jsonl`.
+/// Une partie telle que la page l'affiche, sans les coups (le replay passe par `/api/games/{id}`).
 #[derive(Serialize, Clone)]
 pub(super) struct Row {
     pub(super) v: u32,
@@ -42,7 +44,6 @@ pub(super) struct Row {
     pub(super) black: Side,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) tournament: Option<TournamentGame>,
-    pub(super) at: [u64; 2],
 }
 
 /// Ligne de `timeline.jsonl` : le strict nécessaire pour rejouer les ratings de toutes les équipes.
@@ -69,6 +70,15 @@ impl Row {
             black: &self.black,
             tournament: self.tournament.is_some(),
         }
+    }
+
+    pub(super) fn ratings(&self) -> [Rating; 2] {
+        [&self.red, &self.black].map(|side| Rating {
+            game: self.id.clone(),
+            team: side.team.clone(),
+            all: side.all,
+            session: side.session,
+        })
     }
 }
 

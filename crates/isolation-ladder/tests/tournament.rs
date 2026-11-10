@@ -27,7 +27,7 @@ fn a_started_tournament_is_played_to_its_winner() {
         &config,
         format!(
             "referee = [{referee:?}, \"--port\", \"{{port}}\", \"--time-ms\", \"{{time_ms}}\", \"--opening\", \"{{opening}}\"]\n\
-             port = {port}\ntime_ms = 100\nsession = \"e2e\"\nout = {out:?}\n\
+             port = {port}\ntime_ms = 100\nsession = \"e2e\"\nout = {out:?}\ndb = {db:?}\n\
              team_cmd = [{bot:?}, \"--strategy\", \"random\", \"--port\", \"{{port}}\"]\n\
              [submit]\nlisten = \"127.0.0.1:0\"\nteams = {teams:?}\njars = {jars:?}\n\
              [tournament]\ntime_ms = 100\n",
@@ -35,6 +35,7 @@ fn a_started_tournament_is_played_to_its_winner() {
             bot = support::binary("isolation-bot"),
             port = support::free_port(),
             out = dir.join("data/games.jsonl"),
+            db = dir.join("state/ladder.db"),
             jars = dir.join("jars"),
         ),
     )
@@ -87,6 +88,11 @@ fn a_started_tournament_is_played_to_its_winner() {
     assert_eq!(view["winner"], winner.as_str());
     assert_eq!(view["places"].as_array().unwrap().len(), 4);
     assert!(!dir.join("jars/tournaments").join(&id).exists());
-    let games = fs::read_to_string(dir.join("data/games.jsonl")).unwrap();
-    assert!(games.lines().filter(|l| l.contains("\"tournament\"")).count() >= 7);
+    let db = rusqlite::Connection::open(dir.join("state/ladder.db")).unwrap();
+    let played: i64 = db
+        .query_row("SELECT count(*) FROM games WHERE tournament_id = ?1", [&id], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert!(played >= 7);
 }
