@@ -112,7 +112,11 @@ fn read_routes(db: PathBuf) -> Router {
         .route("/api/games/{id}", get(game))
         .route("/api/stats/{name}", get(stats))
         .with_state(Arc::new(db))
-        .merge(Router::new().route("/api/games", get(recent_games)).with_state(Arc::new(recent)))
+        .merge(
+            Router::new()
+                .route("/api/games", get(recent_games))
+                .with_state(Arc::new(recent)),
+        )
 }
 
 const RECENT_GAMES: usize = 5000;
@@ -153,7 +157,10 @@ impl Recent {
 async fn recent_games(State(recent): State<Arc<Recent>>) -> Response {
     match blocking(move || recent.get()).await {
         Ok(body) => (
-            [(CONTENT_TYPE, "application/x-ndjson"), (CACHE_CONTROL, "public, max-age=60")],
+            [
+                (CONTENT_TYPE, "application/x-ndjson"),
+                (CACHE_CONTROL, "public, max-age=60"),
+            ],
             body,
         )
             .into_response(),
