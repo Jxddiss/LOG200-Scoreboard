@@ -95,9 +95,20 @@ jobs:
             exit 1
           fi
           # Le smoke test joue deux parties et attend la fin de la partie en cours : compter quelques minutes.
-          code=$(curl -sS --max-time 900 -o response.txt -w '%{http_code}' -X PUT \
-            -H "Authorization: Bearer $LADDER_TOKEN" --data-binary @client.jar \
-            "${LADDER_URL%/}/api/submit") || code=000
+          # ?async : le ladder repond 202 et le chemin du verdict, interroge ensuite (un proxy comme
+          # Cloudflare coupe une requete sans reponse au bout de 100 s). Un ladder plus ancien repond 200.
+          auth="Authorization: Bearer $LADDER_TOKEN"
+          code=$(curl -sS --max-time 300 -o response.txt -w '%{http_code}' -X PUT \
+            -H "$auth" --data-binary @client.jar "${LADDER_URL%/}/api/submit?async") || code=000
+          if [ "$code" = 202 ]; then
+            verdict=$(head -n 1 response.txt)
+            for _ in $(seq 180); do
+              sleep 5
+              code=$(curl -sS --max-time 30 -o response.txt -w '%{http_code}' -H "$auth" \
+                "${LADDER_URL%/}$verdict") || code=000
+              [ "$code" = 202 ] || [ "$code" = 000 ] || break
+            done
+          fi
           body=$(cat response.txt 2>/dev/null)
           echo "HTTP $code : $body"
           {

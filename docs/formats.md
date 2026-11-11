@@ -324,6 +324,8 @@ Un jar `Ladder-Threads: 2` joue toutes ses parties dans un slot `multithread`, a
 
 La réponse est un texte court destiné à l'équipe. Chaque soumission est notée dans la table `submissions` de la base, qui n'est pas publiée.
 
+Avec `PUT /api/submit?async`, le ladder répond `202` dès le jar reçu, avec dans le corps (et l'en-tête `Location`) le chemin du verdict, `/api/submit/<id>`. `GET` sur ce chemin, avec le même token, répond `202` tant que le smoke test tourne, puis le verdict avec les codes ci-dessus. Un proxy qui coupe les requêtes longues (Cloudflare : 100 s) ne fait alors plus perdre le verdict. Le verdict est gardé une heure, en mémoire : après un redémarrage du ladder, ou pour une autre équipe, le chemin répond `404`. Sans `?async`, la requête attend le verdict, comme avant. La page et `templates/ladder.yml` utilisent `?async`.
+
 ### Depuis la CI
 
 [`templates/ladder.yml`](../templates/ladder.yml) est un workflow GitHub Actions à placer dans `.github/workflows/` du dépôt de chaque équipe (ou dans le template du lab). À chaque push sur `main` qui modifie `src/`, il compile `src/*.java` pour Java 24, construit le jar avec `Client` comme classe principale et le soumet. Le verdict du ladder s'affiche dans le résumé du run, et le run échoue si le jar est refusé.

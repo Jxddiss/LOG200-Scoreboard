@@ -1,6 +1,8 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::net::SocketAddr;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -8,7 +10,7 @@ use anyhow::Context;
 use axum::Router;
 use axum::body::{Body, Bytes, to_bytes};
 use axum::extract::{DefaultBodyLimit, Path as UrlPath, Query, State};
-use axum::http::header::{AUTHORIZATION, CACHE_CONTROL, CONTENT_TYPE};
+use axum::http::header::{AUTHORIZATION, CACHE_CONTROL, CONTENT_TYPE, LOCATION};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, put};
@@ -25,7 +27,8 @@ use crate::db::{Db, Stat};
 use crate::hub::Hub;
 use crate::remote::{self, Registry, Remote};
 use crate::spectate;
-use crate::submit::{Submissions, SubmitError};
+use crate::submit::{Accepted, Submissions, SubmitError};
+use crate::team_id::TeamId;
 
 /// Serves the API while it lives.
 pub struct Api {
@@ -99,7 +102,11 @@ fn submit_routes(submissions: Arc<Submissions>) -> Router {
             get(async || concat!(env!("CARGO_PKG_VERSION"), "\n")).fallback(not_found),
         )
         .route("/api/submit", put(submit).post(submit).fallback(not_found))
-        .with_state(submissions)
+        .route("/api/submit/{id}", get(verdict).fallback(not_found))
+        .with_state(SubmitState {
+            submissions,
+            jobs: Arc::new(Jobs::new()),
+        })
 }
 
 /// Lectures publiques de la base, chacune sur sa propre connexion en lecture seule.
@@ -217,26 +224,127 @@ async fn not_found() -> SubmitError {
     SubmitError::NotFound
 }
 
+#[derive(Clone)]
+struct SubmitState {
+    submissions: Arc<Submissions>,
+    jobs: Arc<Jobs>,
+}
+
+/// How long `GET /api/submit/{id}` keeps a verdict.
+const VERDICT_TTL: Duration = Duration::from_secs(3600);
+
+/// Smoke tests started by `PUT /api/submit?async`. shortcut: in memory, a restart forgets them
+/// (the poll then gets 404); persist them in the database if that ever matters.
+struct Jobs {
+    next: AtomicU64,
+    jobs: Mutex<HashMap<u64, Job>>,
+}
+
+struct Job {
+    team: TeamId,
+    verdict: Option<(Instant, StatusCode, String)>,
+}
+
+impl Jobs {
+    /// Ids start from the clock, so that one from before a restart is not handed out again.
+    fn new() -> Self {
+        Self {
+            next: AtomicU64::new(now_ms()),
+            jobs: Mutex::default(),
+        }
+    }
+
+    fn start(&self, team: TeamId) -> u64 {
+        let id = self.next.fetch_add(1, Ordering::Relaxed);
+        let mut jobs = self.jobs.lock().unwrap_or_else(PoisonError::into_inner);
+        jobs.retain(|_, job| job.verdict.as_ref().is_none_or(|(at, ..)| at.elapsed() < VERDICT_TTL));
+        jobs.insert(id, Job { team, verdict: None });
+        id
+    }
+
+    fn finish(&self, id: u64, status: StatusCode, body: String) {
+        let mut jobs = self.jobs.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(job) = jobs.get_mut(&id) {
+            job.verdict = Some((Instant::now(), status, body));
+        }
+    }
+
+    fn verdict(&self, id: u64, team: &TeamId) -> Option<(StatusCode, String)> {
+        let jobs = self.jobs.lock().unwrap_or_else(PoisonError::into_inner);
+        let job = jobs.get(&id).filter(|job| &job.team == team)?;
+        Some(job.verdict.as_ref().map_or_else(
+            || (StatusCode::ACCEPTED, "en cours : smoke test\n".to_owned()),
+            |(_, status, body)| (*status, body.clone()),
+        ))
+    }
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
+}
+
+fn outcome(result: Result<Accepted, SubmitError>) -> (StatusCode, String) {
+    match result {
+        Ok(accepted) => (StatusCode::OK, format!("{accepted}\n")),
+        Err(error) => (error.status(), format!("{error}\n")),
+    }
+}
+
+/// With `?async`, answers 202 and the path of the verdict as soon as the jar is received: a proxy
+/// such as Cloudflare cuts a request after 100 s, shorter than a smoke test.
 async fn submit(
-    State(submissions): State<Arc<Submissions>>,
+    State(state): State<SubmitState>,
+    Query(query): Query<HashMap<String, String>>,
     headers: HeaderMap,
     body: Body,
-) -> Result<String, SubmitError> {
+) -> Result<Response, SubmitError> {
+    let submissions = state.submissions;
+    let team = authenticate(&submissions, &headers).await?;
+    let jar = to_bytes(body, submissions.max_body())
+        .await
+        .map_err(|error| body_error(error, submissions.max_jar_mb()))?;
+    if !query.contains_key("async") {
+        return Ok(outcome(blocking(move || submissions.submit(&team, &jar)).await).into_response());
+    }
+    let id = state.jobs.start(team.clone());
+    let jobs = state.jobs;
+    spawn_blocking(move || {
+        let (status, body) = catch_unwind(AssertUnwindSafe(|| submissions.submit(&team, &jar))).map_or_else(
+            |_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "erreur du ladder pendant le smoke test, réessayer plus tard\n".to_owned(),
+                )
+            },
+            outcome,
+        );
+        jobs.finish(id, status, body);
+    });
+    let path = format!("/api/submit/{id}");
+    Ok((StatusCode::ACCEPTED, [(LOCATION, path.clone())], format!("{path}\n")).into_response())
+}
+
+async fn verdict(
+    State(state): State<SubmitState>,
+    UrlPath(id): UrlPath<String>,
+    headers: HeaderMap,
+) -> Result<(StatusCode, String), SubmitError> {
+    let team = authenticate(&state.submissions, &headers).await?;
+    id.parse()
+        .ok()
+        .and_then(|id| state.jobs.verdict(id, &team))
+        .ok_or(SubmitError::UnknownSubmission)
+}
+
+async fn authenticate(submissions: &Arc<Submissions>, headers: &HeaderMap) -> Result<TeamId, SubmitError> {
     let authorization = headers
         .get(AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned);
-    let team = blocking({
-        let submissions = Arc::clone(&submissions);
-        move || submissions.authenticate(authorization.as_deref())
-    })
-    .await?;
-    let jar = to_bytes(body, submissions.max_body())
-        .await
-        .map_err(|error| body_error(error, submissions.max_jar_mb()))?;
-    blocking(move || submissions.submit(&team, &jar))
-        .await
-        .map(|accepted| format!("{accepted}\n"))
+    let submissions = Arc::clone(submissions);
+    blocking(move || submissions.authenticate(authorization.as_deref())).await
 }
 
 fn body_error(error: axum::Error, max_mb: u64) -> SubmitError {

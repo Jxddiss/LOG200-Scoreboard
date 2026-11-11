@@ -5,7 +5,7 @@
 ```mermaid
 flowchart LR
     Push["git push<br>sur main"] --> CI["GitHub Actions<br>compile src/*.java<br>construit client.jar"]
-    CI --> API["Ladder<br>PUT /api/submit"]
+    CI --> API["Ladder<br>PUT /api/submit?async<br>puis GET du verdict"]
     API --> Smoke{"Smoke test<br>contre le bot aléatoire"}
     Smoke -- refusé --> Rouge["Run en échec<br>raison dans le résumé"]
     Smoke -- accepté --> Classement["Votre jar joue<br>dès la partie suivante"]
@@ -36,7 +36,7 @@ Tant que `LADDER_URL` n'est pas réglée, le workflow est sauté : il peut reste
 - **Automatiquement** : pousser sur `main` un commit qui modifie `src/`.
 - **À la main** : onglet **Actions**, workflow **Ladder**, bouton **Run workflow**.
 
-Le smoke test joue deux parties et attend la fin de la partie en cours du ladder : un run prend quelques minutes. Le verdict s'affiche dans le **résumé du run** (onglet Actions, cliquer sur le run), avec un lien vers le classement.
+Le smoke test joue deux parties et attend la fin de la partie en cours du ladder : un run prend quelques minutes. Le workflow envoie le jar, puis interroge le verdict toutes les 5 s : aucun proxy ne coupe la requête en cours de route. Un `ladder.yml` copié avant cette version attend le verdict sur une seule requête, qu'un proxy comme Cloudflare coupe au bout de 100 s : recopier `ladder.yml`. Le verdict s'affiche dans le **résumé du run** (onglet Actions, cliquer sur le run), avec un lien vers le classement.
 
 ## Lire le verdict
 
@@ -51,6 +51,7 @@ Le smoke test joue deux parties et attend la fin de la partie en cours du ladder
 | `HTTP 429` | Soumission trop rapprochée de la précédente | Attendre le délai indiqué, puis **Run workflow** |
 | `HTTP 500` | Erreur du ladder | Réessayer plus tard |
 | `HTTP 503` | Ladder en redémarrage | **Run workflow** dans quelques minutes |
+| `HTTP 404` | Verdict perdu : le ladder a redémarré pendant le smoke test | Regarder la version affichée sur la page ; si elle n'a pas changé, **Run workflow** |
 | `HTTP 000` | Ladder injoignable | Vérifier `LADDER_URL` ; sinon, soumettre par le formulaire de la page |
 
 Perdre le smoke test n'est pas un refus : seul compte le fait de jouer jusqu'au bout avec des coups valides.
@@ -119,7 +120,11 @@ Un refus 422 se reproduit en local avec l'arbitre et le bot de la [dernière rel
 Le formulaire de la page du ladder fait la même chose, tout comme `curl` :
 
 ```sh
-curl -T client.jar -H "Authorization: Bearer $LADDER_TOKEN" "$LADDER_URL/api/submit"
+curl -T client.jar -H "Authorization: Bearer $LADDER_TOKEN" "$LADDER_URL/api/submit?async"
+# répond le chemin du verdict, à interroger jusqu'à ce que le code ne soit plus 202 :
+curl -i -H "Authorization: Bearer $LADDER_TOKEN" "$LADDER_URL/api/submit/<id>"
 ```
+
+Sans `?async`, `curl` attend le verdict sur la même requête, ce qu'un proxy peut couper (Cloudflare : 100 s).
 
 Détails du protocole de soumission : "Soumission des jars" dans [`docs/formats.md`](../docs/formats.md#soumission-des-jars).

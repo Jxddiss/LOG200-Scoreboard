@@ -71,12 +71,14 @@ pub enum SubmitError {
     Install(io::Error),
     #[error("ladder en redémarrage : réessayer dans quelques minutes")]
     Draining,
+    #[error("soumission inconnue : verdict gardé une heure, perdu si le ladder redémarre")]
+    UnknownSubmission,
 }
 
 impl SubmitError {
     pub const fn status(&self) -> StatusCode {
         match self {
-            Self::NotFound => StatusCode::NOT_FOUND,
+            Self::NotFound | Self::UnknownSubmission => StatusCode::NOT_FOUND,
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
             Self::Read(_) | Self::NotAJar | Self::BadThreads(_) => StatusCode::BAD_REQUEST,
             Self::TooLarge { .. } => StatusCode::PAYLOAD_TOO_LARGE,

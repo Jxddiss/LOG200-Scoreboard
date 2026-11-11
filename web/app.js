@@ -853,11 +853,16 @@ async function setupSubmit() {
         status.dataset.state = 'pending'
         status.textContent = "Parties de test en cours : une à deux minutes, plus si d'autres soumissions attendent…"
         try {
-            const res = await fetch(`${API}/submit`, {
-                method: 'PUT',
-                headers: { Authorization: `Bearer ${$('submit-token').value.trim()}` },
-                body: file,
-            })
+            const headers = { Authorization: `Bearer ${$('submit-token').value.trim()}` }
+            // 202 : le verdict est à interroger, Cloudflare coupant une requête à 100 s.
+            let res = await fetch(`${API}/submit?async`, { method: 'PUT', headers, body: file })
+            if (res.status === 202) {
+                const verdict = `${SERVER}${(await res.text()).trim()}`
+                do {
+                    await new Promise((resolve) => setTimeout(resolve, 3000))
+                    res = await fetch(verdict, { headers, cache: 'no-store' })
+                } while (res.status === 202)
+            }
             status.dataset.state = res.ok ? 'ok' : 'error'
             status.textContent = (await res.text()).trim()
         } catch (err) {

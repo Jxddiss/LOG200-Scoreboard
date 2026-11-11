@@ -7,7 +7,7 @@ mod manifest;
 mod smoke;
 
 pub use auth::{DEFAULT_TEAMS, RegistryError, add_team, bearer, find_team, load_teams};
-pub use handler::{Submissions, SubmitError};
+pub use handler::{Accepted, Submissions, SubmitError};
 pub use smoke::SMOKE_OPPONENT;
 
 use crate::config::Config;

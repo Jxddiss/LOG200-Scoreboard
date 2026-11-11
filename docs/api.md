@@ -7,6 +7,7 @@ Toutes les routes sont sous `/api/`. Dans le déploiement Docker, Caddy les rela
 | `GET /api/health` | public | `ok`, pour la surveillance | |
 | `GET /api/version` | public | version du ladder | |
 | `PUT /api/submit` (ou `POST`) | token d'équipe | soumission d'un jar | [formats.md, Soumission des jars](formats.md#soumission-des-jars) |
+| `GET /api/submit/{id}` | token d'équipe | verdict d'une soumission `?async` | [formats.md, Soumission des jars](formats.md#soumission-des-jars) |
 | `GET /api/live` | public | parties en cours, en WebSocket | [formats.md, Direct](formats.md#direct-apilive) |
 | `GET /api/remote` | token d'équipe | relais d'une équipe distante, en WebSocket | [formats.md, Jouer à distance](formats.md#jouer-à-distance) |
 | `GET /api/games` | public | les 5000 dernières parties complètes, en JSONL | ci-dessous |

@@ -174,6 +174,28 @@ fn submit_answers_with_the_status_and_reason_the_teams_ci_reads() {
         assert_eq!(status, 200, "{method}: {reason}");
         assert!(reason.starts_with("déjà actif : "), "{method}: {reason}");
     }
+
+    let (status, path) = ladder.request("PUT", "/api/submit?async", Some(&token), &jar);
+    assert_eq!(status, 202, "{path}");
+    assert!(path.starts_with("/api/submit/"), "{path}");
+    let mut verdict = ladder.request("GET", &path, Some(&token), &[]);
+    for _ in 0..200 {
+        if verdict.0 != 202 {
+            break;
+        }
+        thread::sleep(std::time::Duration::from_millis(50));
+        verdict = ladder.request("GET", &path, Some(&token), &[]);
+    }
+    assert_eq!(verdict.0, 200, "{}", verdict.1);
+    assert!(verdict.1.starts_with("déjà actif : "), "{}", verdict.1);
+    assert_eq!(ladder.request("GET", &path, None, &[]), unauthorized);
+    let unknown = (
+        404,
+        "soumission inconnue : verdict gardé une heure, perdu si le ladder redémarre".to_string(),
+    );
+    let other_team = ladder.add_team("eq02", REGISTRY);
+    assert_eq!(ladder.request("GET", &path, Some(&other_team), &[]), unknown);
+    assert_eq!(ladder.request("GET", "/api/submit/x", Some(&token), &[]), unknown);
 }
 
 #[test]
