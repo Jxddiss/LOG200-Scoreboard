@@ -17,6 +17,7 @@ mod sql {
     pub const IS_EMPTY: &str = include_str!("sql/is_empty.sql");
     pub const GAMES: &str = include_str!("sql/games.sql");
     pub const GAME: &str = include_str!("sql/game.sql");
+    pub const RECENT_GAMES: &str = include_str!("sql/recent_games.sql");
     pub const INSERT_GAME: &str = include_str!("sql/insert_game.sql");
     pub const INSERT_MOVE: &str = include_str!("sql/insert_move.sql");
     pub const INSERT_RATING: &str = include_str!("sql/insert_rating.sql");
@@ -129,6 +130,18 @@ impl Db {
         let mut stmt = self.conn.prepare_cached(sql::GAME)?;
         let mut rows = stmt.query(named_params! { ":id": id })?;
         rows.next()?.map(|r| r.get(0)).transpose()
+    }
+
+    /// Les `limit` dernières parties en JSONL, de la plus ancienne à la plus récente.
+    pub fn recent_jsonl(&self, limit: usize) -> rusqlite::Result<String> {
+        let mut stmt = self.conn.prepare_cached(sql::RECENT_GAMES)?;
+        let mut rows = stmt.query(named_params! { ":limit": limit })?;
+        let mut out = String::new();
+        while let Some(row) = rows.next()? {
+            out.push_str(row.get_ref(0)?.as_str()?);
+            out.push('\n');
+        }
+        Ok(out)
     }
 
     /// `session` absente : toutes les sessions hors tournois. `team` ne sert qu'à `Stat::Builds`.
@@ -323,6 +336,22 @@ pub(crate) mod tests {
         let json: GameRecord = serde_json::from_str(&db.game_json("g2").unwrap().unwrap()).unwrap();
         assert_eq!(json, first);
         assert_eq!(db.game_json("absent").unwrap(), None);
+    }
+
+    #[test]
+    fn recent_games_are_the_last_ones_in_order() {
+        let db = memory();
+        assert_eq!(db.recent_jsonl(2).unwrap(), "");
+        for id in ["g1", "g2", "g3"] {
+            db.insert_game(&game(id, "a", "b", Color::Red)).unwrap();
+        }
+        let ids: Vec<String> = db
+            .recent_jsonl(2)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<GameRecord>(line).unwrap().id)
+            .collect();
+        assert_eq!(ids, ["g2", "g3"]);
     }
 
     #[test]

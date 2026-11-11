@@ -9,10 +9,24 @@ Toutes les routes sont sous `/api/`. Dans le déploiement Docker, Caddy les rela
 | `PUT /api/submit` (ou `POST`) | token d'équipe | soumission d'un jar | [formats.md, Soumission des jars](formats.md#soumission-des-jars) |
 | `GET /api/live` | public | parties en cours, en WebSocket | [formats.md, Direct](formats.md#direct-apilive) |
 | `GET /api/remote` | token d'équipe | relais d'une équipe distante, en WebSocket | [formats.md, Jouer à distance](formats.md#jouer-à-distance) |
+| `GET /api/games` | public | les 5000 dernières parties complètes, en JSONL | ci-dessous |
 | `GET /api/games/{id}` | public | une partie complète, pour le replay | ci-dessous |
 | `GET /api/stats/{nom}` | public | statistiques calculées dans la base | ci-dessous |
 
 Une route inconnue répond 404. Si la base est illisible, les routes de lecture répondent 500 avec `base indisponible`, et le ladder écrit la cause sur sa sortie d'erreur.
+
+## Dernières parties : `GET /api/games`
+
+Les 5000 dernières parties, une par ligne, de la plus ancienne à la plus récente, au même format que `GET /api/games/{id}` (l'ancien `games.jsonl`). Le ladder les garde en mémoire et ne relit la base qu'une fois par minute au plus, peu importe le nombre d'appels. Si la base est illisible, il sert sa dernière copie.
+
+```sh
+curl https://<ladder>/api/games > recent.jsonl
+```
+
+| Code | Sens |
+| --- | --- |
+| 200 | `application/x-ndjson`, avec `Cache-Control: public, max-age=60`. Vide s'il n'y a aucune partie. |
+| 500 | `base indisponible`, seulement si le ladder n'a encore aucune copie en mémoire. |
 
 ## Une partie : `GET /api/games/{id}`
 

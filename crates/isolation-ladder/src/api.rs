@@ -1,11 +1,12 @@
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use axum::Router;
-use axum::body::{Body, to_bytes};
+use axum::body::{Body, Bytes, to_bytes};
 use axum::extract::{DefaultBodyLimit, Path as UrlPath, Query, State};
 use axum::http::header::{AUTHORIZATION, CACHE_CONTROL, CONTENT_TYPE};
 use axum::http::{HeaderMap, StatusCode};
@@ -103,10 +104,61 @@ fn submit_routes(submissions: Arc<Submissions>) -> Router {
 
 /// Lectures publiques de la base, chacune sur sa propre connexion en lecture seule.
 fn read_routes(db: PathBuf) -> Router {
+    let recent = Recent {
+        db: db.clone(),
+        cache: Mutex::new(None),
+    };
     Router::new()
         .route("/api/games/{id}", get(game))
         .route("/api/stats/{name}", get(stats))
         .with_state(Arc::new(db))
+        .merge(Router::new().route("/api/games", get(recent_games)).with_state(Arc::new(recent)))
+}
+
+const RECENT_GAMES: usize = 5000;
+const RECENT_TTL: Duration = Duration::from_secs(60);
+
+/// Les dernières parties, relues au plus une fois par `RECENT_TTL` quel que soit le nombre d'appels.
+struct Recent {
+    db: PathBuf,
+    cache: Mutex<Option<(Instant, Bytes)>>,
+}
+
+impl Recent {
+    // Le verrou reste pris pendant la lecture : les appels simultanés attendent au lieu de relire la base.
+    fn get(&self) -> rusqlite::Result<Bytes> {
+        let mut cache = self.cache.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some((at, body)) = &*cache
+            && at.elapsed() < RECENT_TTL
+        {
+            return Ok(body.clone());
+        }
+        match Db::open_read(&self.db).and_then(|db| db.recent_jsonl(RECENT_GAMES)) {
+            Ok(text) => {
+                let body = Bytes::from(text);
+                *cache = Some((Instant::now(), body.clone()));
+                Ok(body)
+            }
+            Err(e) => match &*cache {
+                Some((_, stale)) => {
+                    eprintln!("lecture de la base : {e} ; dernières parties servies depuis le cache");
+                    Ok(stale.clone())
+                }
+                None => Err(e),
+            },
+        }
+    }
+}
+
+async fn recent_games(State(recent): State<Arc<Recent>>) -> Response {
+    match blocking(move || recent.get()).await {
+        Ok(body) => (
+            [(CONTENT_TYPE, "application/x-ndjson"), (CACHE_CONTROL, "public, max-age=60")],
+            body,
+        )
+            .into_response(),
+        Err(e) => unavailable(&e),
+    }
 }
 
 fn json(cache: &'static str, body: String) -> Response {
