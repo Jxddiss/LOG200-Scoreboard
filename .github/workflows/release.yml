@@ -38,9 +38,24 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends musl-tools
-          echo "CC_${TARGET//-/_}=musl-gcc" >> "$GITHUB_ENV"
+          if timeout 180 sh -c 'sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools'; then
+            echo "CC_${TARGET//-/_}=musl-gcc" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          # Repli quand les miroirs Ubuntu sont injoignables (2026-11-11) : zig (PyPI) embarque la libc musl.
+          echo "::warning::musl-tools indisponible, repli sur zig cc"
+          python3 -m pip install --user --break-system-packages ziglang==0.17.1
+          mkdir -p "$RUNNER_TEMP/bin"
+          cat > "$RUNNER_TEMP/bin/musl-cc" <<WRAPPER
+          #!/bin/sh
+          # cc-rs passe --target=<triplet rust>, que zig refuse : il recoit le sien.
+          for arg; do shift; case "\$arg" in --target=*) ;; *) set -- "\$@" "\$arg" ;; esac; done
+          exec python3 -m ziglang cc -target ${TARGET/-unknown-/-} "\$@"
+          WRAPPER
+          printf '#!/bin/sh\nexec python3 -m ziglang ar "$@"\n' > "$RUNNER_TEMP/bin/musl-ar"
+          chmod +x "$RUNNER_TEMP/bin/musl-cc" "$RUNNER_TEMP/bin/musl-ar"
+          echo "CC_${TARGET//-/_}=$RUNNER_TEMP/bin/musl-cc" >> "$GITHUB_ENV"
+          echo "AR_${TARGET//-/_}=$RUNNER_TEMP/bin/musl-ar" >> "$GITHUB_ENV"
 
       - name: Test
         if: ${{ !matrix.cross }}
