@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "astro dev",
+    "dev:golden": "node dev/golden-server.mjs",
     "build": "astro check && astro build",
     "preview": "astro preview",
     "lint": "eslint .",

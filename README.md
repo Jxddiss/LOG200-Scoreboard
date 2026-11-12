@@ -99,6 +99,8 @@ Optional for local-only builds: `export RUSTFLAGS="-C target-cpu=native"` before
 
 Tests: `cargo test --workspace` and `npm test --prefix web`.
 
+`npm run dev:golden --prefix web` shows the page on the ladder's golden test data, with a fake live stream, a small tournament and a queue (`web/dev/golden-server.mjs`): no ladder or Docker needed.
+
 The page proxies `/api` and `/data` to `SCOREBOARD_DEV_SERVER` in dev (`npm run dev`, default `http://localhost:8080`, the compose stack). `npm run build` writes the static site to `web/dist`; the Pages workflow and `deploy/web.Dockerfile` build it the same way.
 
 ## Conformance against the official server
