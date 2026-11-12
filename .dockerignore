@@ -11,6 +11,11 @@ LICENSE
 .git
 .gitignore
 
+# Page : dependances et build locaux, refaits dans l'image
+web/node_modules/
+web/dist/
+web/.astro/
+
 # Construction de l image du ladder
 target/
 data/
