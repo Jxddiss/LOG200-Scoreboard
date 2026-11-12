@@ -2568,3 +2568,9 @@ p.graph-link:hover {
         transition: none;
     }
 }
+
+/* Swagger UI n'a qu'un thème clair. */
+.panel.swagger {
+    background: #fff;
+    color-scheme: light;
+}

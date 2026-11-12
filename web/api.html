@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="fr">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <title>API du ladder Isolation</title>
+    <!-- Vide : données et direct sur le site qui sert la page. -->
+    <meta name="scoreboard-server" content="" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&display=swap" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.34.1/swagger-ui.css"
+        integrity="sha384-4c3vsE5f+trhFyHrFrLM1fFGUn531NIaC7dcqEWIJdoRQJ5CkJbSuSCwXLpaS1KF" crossorigin="anonymous" />
+    <link rel="stylesheet" href="style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.34.1/swagger-ui-bundle.js"
+        integrity="sha384-XFYN47VzPiDY6qPtxYKg0nqUeW/upo20xf1j2SUE7gT/i35FJB4cuS/71Iegzk8Z"
+        crossorigin="anonymous"></script>
+    <script type="module">
+        import { SERVER } from './common.js'
+
+        // POST n'est pas autorisé par le préflight CORS de Caddy : PUT suffit pour soumettre.
+        SwaggerUIBundle({ url: `${SERVER}/api/openapi.json`, dom_id: '#swagger', supportedSubmitMethods: ['get', 'put'] })
+    </script>
+</head>
+
+<body>
+    <header class="masthead">
+        <h1 class="title">Ladder Isolation <span class="title-course">LOG200</span></h1>
+        <nav class="pages" aria-label="Pages">
+            <a href="./">Classement</a>
+            <a href="graphe.html">Graphe</a>
+            <a href="tournoi.html">Tournoi</a>
+            <a href="direct.html">Direct</a>
+            <a href="api.html" aria-current="page">API</a>
+        </nav>
+    </header>
+
+    <main class="layout">
+        <section id="swagger" class="panel swagger" aria-label="Documentation de l'API"></section>
+    </main>
+</body>
+
+</html>
