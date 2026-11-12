@@ -405,10 +405,11 @@ cp ladder.example.toml ladder.toml          # equipes, temps, session
 target/release/isolation-ladder ladder.toml # Ctrl+C pour arreter, relancer reprend la session
 sqlite3 state/ladder.db "SELECT record FROM games ORDER BY seq" > parties.jsonl
 target/release/isolation-check parties.jsonl  # rejoue et valide toutes les parties
-npx http-server . -p 8000                   # ou python3 -m http.server 8000
-# puis ouvrir http://localhost:8000/web/
+npx http-server . -p 8000                   # sert data/ a la page
+(cd web && npm ci && SCOREBOARD_DEV_SERVER=http://localhost:8000 npm run dev)
+# puis ouvrir http://localhost:3000
 ```
 
-La page lit le dossier `../data` par défaut (un autre dossier se passe avec `web/?data=URL`) et se rafraîchit toutes les 15 secondes. Les fichiers qu'elle lit sont écrits par le ladder : pour regarder un ancien `games.jsonl` sans lancer de parties, `isolation-ladder ladder.toml --rounds 0` l'importe (avec `out` qui pointe vers ce fichier) et les génère. Le replay et les statistiques passent par l'API du ladder (voir [api.md](api.md)) : sans ladder lancé, la page affiche le classement mais n'ouvre pas les parties.
+La page lit le dossier `../data` par défaut (un autre dossier se passe avec `?data=URL`) et se rafraîchit toutes les 15 secondes. Les fichiers qu'elle lit sont écrits par le ladder : pour regarder un ancien `games.jsonl` sans lancer de parties, `isolation-ladder ladder.toml --rounds 0` l'importe (avec `out` qui pointe vers ce fichier) et les génère. Le replay et les statistiques passent par l'API du ladder (voir [api.md](api.md)) : sans ladder lancé, la page affiche le classement mais n'ouvre pas les parties.
 
 Elle lit les fichiers d'équipe par morceaux (en-tête `Range`). Un serveur qui ignore `Range`, comme `python3 -m http.server`, renvoie le fichier entier : ça fonctionne, mais sans le gain.
