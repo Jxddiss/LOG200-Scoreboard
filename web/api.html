@@ -21,6 +21,12 @@
     <script type="module">
         import { SERVER } from './common.js'
 
+        // Swagger UI a un thème sombre, activé par une classe sur <html> : suivre le système comme le site.
+        const dark = matchMedia('(prefers-color-scheme: dark)')
+        const theme = () => document.documentElement.classList.toggle('dark-mode', dark.matches)
+        theme()
+        dark.addEventListener('change', theme)
+
         // POST n'est pas autorisé par le préflight CORS de Caddy : PUT suffit pour soumettre.
         SwaggerUIBundle({ url: `${SERVER}/api/openapi.json`, dom_id: '#swagger', supportedSubmitMethods: ['get', 'put'] })
     </script>
@@ -38,7 +44,7 @@
         </nav>
     </header>
 
-    <main class="layout">
+    <main class="layout api-layout">
         <section id="swagger" class="panel swagger" aria-label="Documentation de l'API"></section>
     </main>
 </body>

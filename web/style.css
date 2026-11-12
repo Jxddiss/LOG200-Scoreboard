@@ -1749,7 +1749,8 @@ p.graph-link:hover {
 
 /* --- Tournoi --------------------------------------------------------------------------------- */
 
-.layout.tournament-layout {
+.layout.tournament-layout,
+.layout.api-layout {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
     grid-template-areas: none;
@@ -2569,8 +2570,12 @@ p.graph-link:hover {
     }
 }
 
-/* Swagger UI n'a qu'un thème clair. */
 .panel.swagger {
-    background: #fff;
-    color-scheme: light;
+    min-height: 0;
+    overflow: auto;
+}
+
+/* Le thème sombre de Swagger UI a son propre fond, un peu différent de celui du site. */
+.panel.swagger .swagger-ui {
+    background: transparent;
 }
