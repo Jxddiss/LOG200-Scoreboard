@@ -17,7 +17,7 @@ mod sql {
     pub const IS_EMPTY: &str = include_str!("sql/is_empty.sql");
     pub const GAMES: &str = include_str!("sql/games.sql");
     pub const GAME: &str = include_str!("sql/game.sql");
-    pub const RECENT_GAMES: &str = include_str!("sql/recent_games.sql");
+    pub const GAMES_FILTER: &str = include_str!("sql/games_filter.sql");
     pub const INSERT_GAME: &str = include_str!("sql/insert_game.sql");
     pub const INSERT_MOVE: &str = include_str!("sql/insert_move.sql");
     pub const INSERT_RATING: &str = include_str!("sql/insert_rating.sql");
@@ -33,6 +33,9 @@ pub enum Stat {
     HeadToHead,
     Openings,
     Builds,
+    Ratings,
+    MoveTimes,
+    Submissions,
 }
 
 impl Stat {
@@ -42,12 +45,30 @@ impl Stat {
             Self::HeadToHead => include_str!("sql/stats_head_to_head.sql"),
             Self::Openings => include_str!("sql/stats_openings.sql"),
             Self::Builds => include_str!("sql/stats_builds.sql"),
+            Self::Ratings => include_str!("sql/stats_ratings.sql"),
+            Self::MoveTimes => include_str!("sql/stats_move_times.sql"),
+            Self::Submissions => include_str!("sql/stats_submissions.sql"),
         }
     }
 }
 
 pub struct Db {
     conn: Connection,
+}
+
+/// Filtres de `/api/games`, chacun facultatif.
+#[derive(serde::Deserialize, utoipa::IntoParams, Default, PartialEq, Eq)]
+#[into_params(parameter_in = Query)]
+pub struct GameFilter {
+    /// Les parties de cette équipe, en rouge ou en noir (`eq100`).
+    pub team: Option<String>,
+    /// Les parties contre cette équipe. Avec `team`, leurs face-à-face.
+    pub opponent: Option<String>,
+    /// Une session ou un tournoi (`automne-2026`), tournois compris.
+    pub session: Option<String>,
+    /// L'id d'une partie : seules celles jouées avant elle, pour remonter page par page en passant
+    /// l'id de la première ligne reçue. Un id inconnu donne une réponse vide.
+    pub before: Option<String>,
 }
 
 /// Rating d'une équipe après une partie : `[rating, variation]`, toutes sessions puis dans la session.
@@ -132,10 +153,16 @@ impl Db {
         rows.next()?.map(|r| r.get(0)).transpose()
     }
 
-    /// Les `limit` dernières parties en JSONL, de la plus ancienne à la plus récente.
-    pub fn recent_jsonl(&self, limit: usize) -> rusqlite::Result<String> {
-        let mut stmt = self.conn.prepare_cached(sql::RECENT_GAMES)?;
-        let mut rows = stmt.query(named_params! { ":limit": limit })?;
+    /// Les `limit` dernières parties qui passent `filter`, en JSONL, de la plus ancienne à la plus récente.
+    pub fn games_jsonl(&self, filter: &GameFilter, limit: usize) -> rusqlite::Result<String> {
+        let mut stmt = self.conn.prepare_cached(sql::GAMES_FILTER)?;
+        let mut rows = stmt.query(named_params! {
+            ":team": filter.team,
+            ":opponent": filter.opponent,
+            ":session": filter.session,
+            ":before": filter.before,
+            ":limit": limit,
+        })?;
         let mut out = String::new();
         while let Some(row) = rows.next()? {
             out.push_str(row.get_ref(0)?.as_str()?);
@@ -144,7 +171,7 @@ impl Db {
         Ok(out)
     }
 
-    /// `session` absente : toutes les sessions hors tournois. `team` ne sert qu'à `Stat::Builds`.
+    /// `session` absente : toutes les sessions hors tournois. `team` ne sert qu'aux statistiques d'une équipe.
     pub fn stats(&self, which: Stat, session: Option<&str>, team: Option<&str>) -> rusqlite::Result<String> {
         let mut stmt = self.conn.prepare_cached(which.sql())?;
         // SQLite refuse un paramètre nommé absent de la requête.
@@ -341,12 +368,12 @@ pub(crate) mod tests {
     #[test]
     fn recent_games_are_the_last_ones_in_order() {
         let db = memory();
-        assert_eq!(db.recent_jsonl(2).unwrap(), "");
+        assert_eq!(db.games_jsonl(&GameFilter::default(), 2).unwrap(), "");
         for id in ["g1", "g2", "g3"] {
             db.insert_game(&game(id, "a", "b", Color::Red)).unwrap();
         }
         let ids: Vec<String> = db
-            .recent_jsonl(2)
+            .games_jsonl(&GameFilter::default(), 2)
             .unwrap()
             .lines()
             .map(|line| serde_json::from_str::<GameRecord>(line).unwrap().id)
@@ -430,6 +457,7 @@ pub(crate) mod tests {
         let mut g1 = game("g1", "a", "b", Color::Red);
         g1.red.build = Some("h1".into());
         g1.ts = "2026-10-24T12:00:00.000Z".into();
+        g1.result.move_ms = vec![600, 20, 480];
         let mut g2 = game("g2", "b", "a", Color::Black);
         g2.black.build = Some("h1".into());
         g2.result.reason = Reason::Timeout;
@@ -454,7 +482,9 @@ pub(crate) mod tests {
     }
 
     fn stat(db: &Db, stat: Stat, session: Option<&str>, team: Option<&str>) -> serde_json::Value {
-        serde_json::from_str(&db.stats(stat, session, team).unwrap()).unwrap()
+        let json = db.stats(stat, session, team).unwrap();
+        crate::openapi::check(stat, &json);
+        serde_json::from_str(&json).unwrap()
     }
 
     #[test]
@@ -531,5 +561,101 @@ pub(crate) mod tests {
             1
         );
         assert_eq!(stat(&db, Stat::Builds, None, Some("b")), serde_json::json!([]));
+    }
+
+    fn ids(db: &Db, filter: &GameFilter, limit: usize) -> Vec<String> {
+        db.games_jsonl(filter, limit)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<GameRecord>(line).unwrap().id)
+            .collect()
+    }
+
+    #[test]
+    fn games_filter_by_team_opponent_and_session_and_page_backwards() {
+        let db = league();
+        let filter =
+            |team: Option<&str>, opponent: Option<&str>, session: Option<&str>, before: Option<&str>| GameFilter {
+                team: team.map(Into::into),
+                opponent: opponent.map(Into::into),
+                session: session.map(Into::into),
+                before: before.map(Into::into),
+            };
+        assert_eq!(
+            ids(&db, &filter(Some("a"), None, None, None), 10),
+            ["g1", "g2", "g3", "g4"]
+        );
+        assert_eq!(ids(&db, &filter(Some("c"), None, None, None), 10), ["g3"]);
+        assert_eq!(
+            ids(&db, &filter(Some("a"), Some("b"), Some("s1"), None), 10),
+            ["g1", "g2"]
+        );
+        assert_eq!(ids(&db, &filter(Some("a"), None, None, Some("g3")), 1), ["g2"]);
+        assert!(ids(&db, &filter(None, None, None, Some("absente")), 10).is_empty());
+    }
+
+    #[test]
+    fn ratings_follow_the_games_of_the_team() {
+        let db = league();
+        let rating = |game: &str, all: f64| Rating {
+            game: game.into(),
+            team: "a".into(),
+            all: [all, 16.0],
+            session: [all - 10.0, 8.0],
+        };
+        db.add_ratings([rating("g3", 1532.0), rating("g1", 1516.0)]).unwrap();
+        let ratings = stat(&db, Stat::Ratings, None, Some("a"));
+        assert_eq!(
+            ratings[0],
+            serde_json::json!({"game": "g1", "ts": "2026-10-24T12:00:00.000Z", "session": "s1",
+                "all": {"rating": 1516.0, "delta": 16.0}, "in_session": {"rating": 1506.0, "delta": 8.0}})
+        );
+        assert_eq!(ratings[1]["game"], "g3");
+        assert_eq!(
+            stat(&db, Stat::Ratings, Some("s2"), Some("a"))
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(stat(&db, Stat::Ratings, None, Some("b")), serde_json::json!([]));
+    }
+
+    #[test]
+    fn move_times_skip_the_first_move_when_counting_near_the_limit() {
+        let db = league();
+        assert_eq!(
+            stat(&db, Stat::MoveTimes, None, Some("a")),
+            serde_json::json!([
+                {"build": "h1", "moves": 3, "avg_ms": 367, "max_ms": 600, "near_limit": 1},
+                {"build": "h2", "moves": 2, "avg_ms": 20, "max_ms": 30, "near_limit": 0},
+            ])
+        );
+    }
+
+    #[test]
+    fn submissions_hide_the_detail_of_ladder_errors() {
+        let db = memory();
+        for (verdict, detail) in [
+            ("accepted", ""),
+            ("rejected", "timeout"),
+            ("error", "/srv/state: denied"),
+        ] {
+            db.insert_submission(&Submission {
+                ts: "2026-10-24T12:00:00.000Z".into(),
+                team: "a".into(),
+                hash: "h1".into(),
+                verdict: verdict.into(),
+                detail: detail.into(),
+            })
+            .unwrap();
+        }
+        let submissions = stat(&db, Stat::Submissions, None, Some("a"));
+        assert_eq!(submissions[1]["detail"], "timeout");
+        assert_eq!(
+            submissions[2],
+            serde_json::json!({"ts": "2026-10-24T12:00:00.000Z", "hash": "h1", "verdict": "error", "detail": ""})
+        );
+        assert_eq!(stat(&db, Stat::Submissions, None, Some("b")), serde_json::json!([]));
     }
 }

@@ -14,6 +14,7 @@ pub const CELLS: usize = SIZE as usize * SIZE as usize;
 pub const DIRS: [(i8, i8); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum Color {
     Red,
@@ -45,6 +46,7 @@ impl fmt::Display for Color {
 
 /// Une valeur par couleur, indexée par `Color`.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ByColor<T> {
     pub red: T,
     pub black: T,

@@ -250,6 +250,12 @@ fn replay_reads_one_game_by_id_and_lets_caches_keep_it() {
     assert_eq!(format!("{body}\n"), GAME);
 
     assert_eq!(ladder.request("GET", "/api/games/absent", None, b"").0, 404);
+    assert_eq!(
+        ladder.request("GET", "/api/games?team=a", None, b""),
+        (200, GAME.trim_end().to_owned())
+    );
+    assert_eq!(ladder.request("GET", "/api/games?team=a&before=g1", None, b"").1, "");
+    assert_eq!(ladder.request("GET", "/api/games?limit=x", None, b"").0, 400);
 }
 
 #[test]
@@ -276,5 +282,42 @@ fn stats_answer_in_json_for_fifteen_seconds() {
     assert_eq!(ladder.request("GET", "/api/stats/openings", None, b"").0, 200);
     assert_eq!(ladder.request("GET", "/api/stats/builds?team=a", None, b"").0, 200);
     assert_eq!(ladder.request("GET", "/api/stats/builds", None, b"").0, 400);
+    for name in ["ratings", "move-times", "submissions"] {
+        assert_eq!(
+            ladder.request("GET", &format!("/api/stats/{name}?team=a"), None, b"").0,
+            200
+        );
+        assert_eq!(ladder.request("GET", &format!("/api/stats/{name}"), None, b"").0, 400);
+    }
     assert_eq!(ladder.request("GET", "/api/stats/inconnue", None, b"").0, 404);
+}
+
+#[test]
+fn openapi_spec_lists_every_http_route() {
+    let ladder = Ladder::start("openapi");
+    let (status, body) = ladder.request("GET", "/api/openapi.json", None, b"");
+    assert_eq!(status, 200);
+    let spec: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let mut paths: Vec<&str> = spec["paths"].as_object().unwrap().keys().map(String::as_str).collect();
+    paths.sort_unstable();
+    assert_eq!(
+        paths,
+        [
+            "/api/games",
+            "/api/games/{id}",
+            "/api/health",
+            "/api/stats/builds",
+            "/api/stats/head-to-head",
+            "/api/stats/move-times",
+            "/api/stats/openings",
+            "/api/stats/ratings",
+            "/api/stats/submissions",
+            "/api/stats/teams",
+            "/api/submit",
+            "/api/submit/{id}",
+            "/api/version",
+        ]
+    );
+    assert!(spec["paths"]["/api/submit"]["post"].is_object());
+    assert!(spec["components"]["schemas"]["GameRecord"].is_object());
 }

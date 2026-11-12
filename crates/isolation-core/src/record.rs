@@ -13,6 +13,7 @@ use crate::rules::{Replay, ReplayError};
 pub const RECORD_VERSION: u32 = 1;
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum Reason {
     NoMoves,
@@ -28,6 +29,7 @@ pub enum Reason {
 pub type InvalidCounts = ByColor<u32>;
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GameResult {
     pub v: u32,
     pub time_ms: u64,
@@ -39,6 +41,7 @@ pub struct GameResult {
     pub winner: Color,
     pub reason: Reason,
     #[serde(default)]
+    #[cfg_attr(feature = "openapi", schema(value_type = ByColor<u32>))]
     pub invalid: InvalidCounts,
     pub duration_ms: u64,
     /// Temps de réflexion de chaque coup de `moves`, même index. Absent chez d'autres arbitres.
@@ -58,6 +61,7 @@ pub enum RefereeEvent {
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Player {
     pub team: String,
     /// Identifie la version du jar : un nouveau hash marque une nouvelle soumission.
@@ -72,6 +76,7 @@ pub struct Player {
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GameRecord {
     pub id: String,
     pub session: String,
@@ -85,6 +90,7 @@ pub struct GameRecord {
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TournamentGame {
     pub id: String,
     #[serde(rename = "match")]

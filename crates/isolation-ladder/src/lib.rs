@@ -29,6 +29,7 @@ mod db;
 mod hub;
 mod live;
 mod model;
+mod openapi;
 mod spectate;
 mod standings;
 

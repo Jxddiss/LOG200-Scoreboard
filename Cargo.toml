@@ -25,6 +25,8 @@ thiserror = "2"
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "net"] }
 toml = "1.2.0"
 tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }
+utoipa = { version = "6.0.0", default-features = false, features = ["macros"] }
+utoipa-axum = "0.3.0"
 zip = { version = "9.3.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [workspace.lints.clippy]

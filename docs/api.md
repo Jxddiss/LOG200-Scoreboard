@@ -10,24 +10,44 @@ Toutes les routes sont sous `/api/`. Dans le déploiement Docker, Caddy les rela
 | `GET /api/submit/{id}` | token d'équipe | verdict d'une soumission `?async` | [formats.md, Soumission des jars](formats.md#soumission-des-jars) |
 | `GET /api/live` | public | parties en cours, en WebSocket | [formats.md, Direct](formats.md#direct-apilive) |
 | `GET /api/remote` | token d'équipe | relais d'une équipe distante, en WebSocket | [formats.md, Jouer à distance](formats.md#jouer-à-distance) |
-| `GET /api/games` | public | les 5000 dernières parties complètes, en JSONL | ci-dessous |
+| `GET /api/games` | public | les parties complètes, en JSONL, filtrables et paginées | ci-dessous |
 | `GET /api/games/{id}` | public | une partie complète, pour le replay | ci-dessous |
 | `GET /api/stats/{nom}` | public | statistiques calculées dans la base | ci-dessous |
+| `GET /api/openapi.json` | public | spec OpenAPI de toutes ces routes HTTP, généré depuis le code | ci-dessous |
 
 Une route inconnue répond 404. Si la base est illisible, les routes de lecture répondent 500 avec `base indisponible`, et le ladder écrit la cause sur sa sortie d'erreur.
 
-## Dernières parties : `GET /api/games`
+## Documentation interactive : `GET /api/openapi.json`
 
-Les 5000 dernières parties, une par ligne, de la plus ancienne à la plus récente, au même format que `GET /api/games/{id}` (l'ancien `games.jsonl`). Le ladder les garde en mémoire et ne relit la base qu'une fois par minute au plus, peu importe le nombre d'appels. Si la base est illisible, il sert sa dernière copie.
+Le ladder génère au démarrage un spec OpenAPI 3.1 de ses routes HTTP (paramètres, codes de retour, schémas des réponses), à partir des annotations `#[utoipa::path]` de `crates/isolation-ladder/src/api.rs` et des types de `crates/isolation-ladder/src/openapi.rs`. Les tests de `db.rs` vérifient que chaque statistique SQL correspond à son schéma : le spec ne peut pas dériver du code sans casser la CI.
+
+La page `api.html` du site (lien « API » dans la barre de navigation, GitHub Pages compris) l'affiche avec Swagger UI, chargé depuis jsDelivr, et permet d'essayer les routes contre le serveur (`GET`, et `PUT /api/submit` avec le token d'équipe ; `POST` n'est pas permis par le préflight CORS de Caddy). Elle suit toujours la version déployée du ladder.
+
+## Parties : `GET /api/games`
+
+Les parties, une par ligne, de la plus ancienne à la plus récente, au même format que `GET /api/games/{id}` (l'ancien `games.jsonl`). Sans paramètre, les 5000 dernières : le ladder les garde en mémoire et ne relit la base qu'une fois par minute au plus, peu importe le nombre d'appels. Si la base est illisible, il sert sa dernière copie.
+
+Paramètres, tous facultatifs (avec l'un d'eux, le ladder lit la base à chaque appel) :
+
+- `team` : les parties de cette équipe, en rouge ou en noir.
+- `opponent` : les parties contre cette équipe. Avec `team`, leurs face-à-face.
+- `session` : une session ou un tournoi. Contrairement à `/api/stats`, les tournois ne sont pas exclus par défaut.
+- `before` : l'id d'une partie ; seules les parties jouées avant elle (elle exclue). Un id inconnu donne une réponse vide.
+- `limit` : le nombre de parties, 5000 au plus (et par défaut).
+
+Pour tout l'historique d'une équipe, remonter page par page en passant comme `before` l'id de la première ligne reçue, jusqu'à une réponse vide :
 
 ```sh
 curl https://<ladder>/api/games > recent.jsonl
+curl "https://<ladder>/api/games?team=eq100&limit=1000"
+curl "https://<ladder>/api/games?team=eq100&limit=1000&before=20261111T161123.521Z-eq100-eq214"
 ```
 
 | Code | Sens |
 | --- | --- |
-| 200 | `application/x-ndjson`, avec `Cache-Control: public, max-age=60`. Vide s'il n'y a aucune partie. |
-| 500 | `base indisponible`, seulement si le ladder n'a encore aucune copie en mémoire. |
+| 200 | `application/x-ndjson`, avec `Cache-Control: public, max-age=60` sans paramètre, `max-age=15` avec. Vide si aucune partie ne correspond. |
+| 400 | Paramètre illisible (`limit` non numérique). |
+| 500 | `base indisponible` (sans paramètre : seulement si le ladder n'a encore aucune copie en mémoire). |
 
 ## Une partie : `GET /api/games/{id}`
 
@@ -98,11 +118,41 @@ Le bilan de chaque build (16 premiers caractères hexadécimaux du sha256 du jar
 ]
 ```
 
+### `ratings?team=<équipe>` : courbe Elo
+
+Le rating de l'équipe après chacune de ses parties classées, dans l'ordre où elles ont été jouées : `all` toutes sessions confondues, `in_session` dans la session de la partie.
+
+```json
+[
+  { "game": "20261111T161123.521Z-eq100-eq214", "ts": "2026-11-11T16:11:23.521Z", "session": "automne-2026",
+    "all": { "rating": 1532.4, "delta": 6.1 }, "in_session": { "rating": 1518.0, "delta": 7.3 } }
+]
+```
+
+### `move-times?team=<équipe>` : temps de réflexion
+
+Par build, dans l'ordre où ils ont joué pour la première fois : nombre de coups chronométrés, moyenne et maximum en ms, et `near_limit`, le nombre de coups à 90 % ou plus du temps par coup (`time_ms`). Le premier coup de chaque joueur n'entre pas dans `near_limit` : il a une seconde de grâce pour la JVM à froid. `build` vaut `null` pour les bots de `[[team]]`.
+
+```json
+[ { "build": "812198fd4ad7b97e", "moves": 182340, "avg_ms": 212, "max_ms": 1487, "near_limit": 31 } ]
+```
+
+### `submissions?team=<équipe>` : soumissions
+
+Les jars soumis par l'équipe, du plus ancien au plus récent, avec leur verdict (`accepted`, `rejected` ou `error`). `detail` donne la raison d'un rejet ; il est vide pour une erreur du ladder, dont le message peut contenir des chemins du serveur. `session` n'a pas d'effet ici.
+
+```json
+[
+  { "ts": "2026-11-02T02:30:11.204Z", "hash": "812198fd4ad7b97e", "verdict": "accepted", "detail": "" },
+  { "ts": "2026-11-05T18:02:47.950Z", "hash": "0b4e19c2a7d3f561", "verdict": "rejected", "detail": "en rouge : temps dépassé" }
+]
+```
+
 | Code | Sens |
 | --- | --- |
 | 200 | `application/json`. |
-| 400 | `builds` sans `team`, ou paramètres illisibles. |
-| 404 | Statistique inconnue. |
+| 400 | `builds`, `ratings`, `move-times` ou `submissions` sans `team`, ou paramètres illisibles. |
+| 404 | Statistique inconnue (route inconnue). |
 
 ## Requêtes libres
 
