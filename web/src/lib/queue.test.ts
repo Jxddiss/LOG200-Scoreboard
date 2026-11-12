@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { countdown, layout } from './queue.js'
+import { countdown, layout } from './queue.ts'
 
 const teams = (n) => Array.from({ length: n }, (_, i) => ({ id: `t${i}`, ahead: i, bot: false }))
 const marked = (nodes) => nodes.flatMap((n, i) => (n.path ? [i] : []))

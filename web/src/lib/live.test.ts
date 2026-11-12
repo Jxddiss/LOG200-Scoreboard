@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { apply, ENDED_KEEP_MS, forget, liveUrl, mover, pickLive } from './live.js'
+import { apply, ENDED_KEEP_MS, forget, liveUrl, mover, pickLive } from './live.ts'
 
 const game = (id, extra = {}) => ({ id, red: 'a', black: 'b', opening: [], moves: [], move_ms: [], turn_ms: 0, ...extra })
 const snapshot = (...games) => ({ v: 1, type: 'snapshot', games })

@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { pointAt, rankSeries, smooth, topTeams } from './bump.js'
+import { pointAt, rankSeries, smooth, topTeams } from './bump.ts'
 
 let clock = 0
 // Ligne de timeline : `red` et `black` sont [équipe, rating après la partie, build].

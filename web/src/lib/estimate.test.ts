@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { correction, expectedMax, gamesPlayed, tournamentDuration } from './estimate.js'
+import { correction, expectedMax, gamesPlayed, tournamentDuration } from './estimate.ts'
 
 const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-3, `${a} ≉ ${b}`)
 

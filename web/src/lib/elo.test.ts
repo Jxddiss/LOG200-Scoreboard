@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { BETWEEN, gamesOf, isRemote, parseJsonl, ratingOf, record, since, START, versionStarts } from './elo.js'
-import { BLACK, DESTROYED, EMPTY, positions, RED, squareIndex, squareName } from './replay.js'
+import { BETWEEN, gamesOf, isRemote, parseJsonl, ratingOf, record, since, START, versionStarts } from './elo.ts'
+import { BLACK, DESTROYED, EMPTY, positions, RED, squareIndex, squareName } from './replay.ts'
 
 let clock = 0
 function game(red, black, winner, extra = {}) {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { releaseState } from './version.js'
+import { releaseState } from './version.ts'
 
 test('the ladder matches the latest release tag', () => {
     assert.equal(releaseState('0.24.1', 'v0.24.1'), 'current')
