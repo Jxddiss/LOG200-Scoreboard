@@ -1,0 +1,67 @@
+import { useGetHealth } from '@/dao/hooks/use-ladder';
+import { submitJar } from '@/dao/scoreboard.repository';
+import { useState, type FC, type SubmitEvent } from 'react';
+
+type TSubmitState = 'pending' | 'ok' | 'error';
+
+const INTRO =
+  "Deux parties de test contre un bot aléatoire, jusqu'à deux minutes. Si elles se terminent sans dépassement de temps ni plantage, ce jar remplace celui de l'équipe.";
+
+// Le formulaire n'apparaît que si le service de soumission répond (absent en hébergement statique).
+const SubmitPanel: FC = () => {
+  const { data: available } = useGetHealth();
+  const [token, setToken] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [state, setState] = useState<TSubmitState>();
+  const [message, setMessage] = useState(INTRO);
+
+  const handleSubmit = async (e: SubmitEvent) => {
+    e.preventDefault();
+    if (!file) return;
+    setState('pending');
+    setMessage("Parties de test en cours : une à deux minutes, plus si d'autres soumissions attendent…");
+    try {
+      const verdict = await submitJar(token.trim(), file);
+      setState(verdict.ok ? 'ok' : 'error');
+      setMessage(verdict.message);
+    } catch (err) {
+      setState('error');
+      setMessage(`Envoi impossible : ${(err as Error).message}. Vérifiez la connexion, puis réessayez.`);
+    }
+  };
+
+  return (
+    <section id="submit-panel" className="panel submit" aria-labelledby="submit-title" hidden={!available}>
+      <h2 id="submit-title">Soumettre un jar</h2>
+      <form id="submit-form" className="submit-form" onSubmit={handleSubmit}>
+        <label className="field">
+          <span>Token de l'équipe</span>
+          <input
+            id="submit-token"
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            required
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+          />
+        </label>
+        <label className="field file">
+          <span>Jar</span>
+          <input id="submit-file" type="file" accept=".jar" required onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          <span className="file-button" aria-hidden="true">
+            <span id="submit-file-name">{file?.name ?? 'Choisir le jar'}</span>
+          </span>
+        </label>
+        <button id="submit-button" className="primary" type="submit" disabled={state === 'pending'}>
+          Envoyer le jar
+        </button>
+      </form>
+      <p id="submit-status" className="submit-status" role="status" aria-live="polite" data-state={state}>
+        {message}
+      </p>
+    </section>
+  );
+};
+
+export { SubmitPanel };

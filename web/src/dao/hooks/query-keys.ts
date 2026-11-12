@@ -1,0 +1,12 @@
+export const queryKeys = {
+  summary: 'summary',
+  teamRows: 'teamRows',
+  timeline: 'timeline',
+  running: 'running',
+  model: 'model',
+  queue: 'queue',
+  version: 'version',
+  health: 'health',
+  tournaments: 'tournaments',
+  tournament: 'tournament',
+};

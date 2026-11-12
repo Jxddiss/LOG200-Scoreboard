@@ -1,0 +1,56 @@
+import { RemoteBadge } from '@/components/badge/badge';
+import { REASONS } from '@/components/replay/replay.data';
+import { fullFormat, roundDelta, shortWhen, signed } from '@/lib/format';
+import { cn } from '@/lib/utils';
+import type { TColor, TGameRow, TRatingChange, TSide } from '@/types/games.types';
+import type { FC } from 'react';
+
+type Props = {
+  game: TGameRow;
+  rating: (side: TSide) => TRatingChange;
+  current: boolean;
+  onSelect: (game: TGameRow) => void;
+};
+
+const GameItem: FC<Props> = ({ game: g, rating, current, onSelect }) => {
+  const change = (color: TColor) => roundDelta(rating(g[color])[1]);
+  const who = (color: TColor, name: string) =>
+    `${g[color].team} (${name}${g[color].remote ? ', distant' : ''}${change(color) ? `, ${signed(change(color))}` : ''})`;
+
+  const side = (color: TColor) => {
+    const d = change(color);
+    return (
+      <span className={cn('side', color, g.winner === color && 'winner')}>
+        <span>{g[color].team}</span>
+        {g[color].remote && <RemoteBadge />}
+        {d ? (
+          <span className={cn('delta', d > 0 ? 'up' : 'down')} title={`Elo après la partie : ${Math.round(rating(g[color])[0])}`}>
+            {signed(d)}
+          </span>
+        ) : null}
+      </span>
+    );
+  };
+
+  return (
+    <li>
+      <button
+        type="button"
+        className="game"
+        data-id={g.id}
+        aria-label={`${who('red', 'rouge')} contre ${who('black', 'noir')}, ${g[g.winner].team} gagne`}
+        aria-current={current ? 'true' : undefined}
+        onClick={() => onSelect(g)}
+      >
+        <time dateTime={g.ts} title={fullFormat.format(new Date(g.ts))}>
+          {shortWhen(g.ts)}
+        </time>
+        {side('red')}
+        {side('black')}
+        <span className="meta">{`${REASONS[g.reason] ?? g.reason}, ${g.moves} coups, ${Math.round(g.duration_ms / 1000)} s`}</span>
+      </button>
+    </li>
+  );
+};
+
+export { GameItem };
