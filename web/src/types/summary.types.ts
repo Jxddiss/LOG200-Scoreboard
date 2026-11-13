@@ -26,6 +26,8 @@ export type TTeamRating = {
   build_wins: number;
   build_games: number;
   pace?: TPace;
+  // Autres builds de l'équipe, par hash ; seulement avec --archives.
+  archived_paces?: Record<string, TPace>;
   last?: string;
 };
 

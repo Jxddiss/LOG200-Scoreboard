@@ -76,10 +76,17 @@ export function archivedRows(
   return [...out.values()];
 }
 
-// Anciennes versions placées à leur Elo dans le classement (déjà trié par Elo), sans rang actif.
+// Anciennes versions placées à leur Elo dans le classement (déjà trié par Elo), sans rang actif, avec
+// leurs temps par coup publiés sur la ligne de leur équipe.
 export function withArchivedRows(ratings: TTeamRating[], archived: TRankingRow[]): TRankingRow[] {
-  const current = new Map(ratings.map((r) => [r.team, r.build]));
-  const extra = archived.filter((old) => current.get(old.team) !== old.build).sort((a, b) => b.rating - a.rating);
+  const teams = new Map(ratings.map((r) => [r.team, r]));
+  const extra = archived
+    .filter((old) => teams.get(old.team)?.build !== old.build)
+    .map((old) => {
+      const pace = teams.get(old.team)?.archived_paces?.[old.build!];
+      return pace ? { ...old, pace } : old;
+    })
+    .sort((a, b) => b.rating - a.rating);
   const out: TRankingRow[] = [];
   let i = 0;
   for (const r of ratings) {

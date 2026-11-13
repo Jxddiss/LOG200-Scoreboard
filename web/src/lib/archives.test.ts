@@ -78,6 +78,17 @@ test('selected archive rows take their Elo place, after an active row at the sam
     assert.equal(old[0].team, 'eq110')
 })
 
+test('archived rows take their timings from the archived_paces of their team row', () => {
+    const pace = { p50: 40, p95: 90, p99: 99, max: 120, count: 300, limit: 1000 }
+    const active = [{ team: 'eq118', build: 'new', rating: 1600, pace: { ...pace, p95: 10 }, archived_paces: { old: pace } }]
+    const old = [{ team: 'eq118', build: 'old', rating: 1500, archived: true },
+        { team: 'eq118', build: 'older', rating: 1400, archived: true }]
+    const [, withPace, without] = withArchivedRows(active, old)
+    assert.deepEqual(withPace, { ...old[0], pace })
+    assert.equal(without, old[1])
+    assert.equal(old[0].pace, undefined)
+})
+
 test('past session rows stay visible and a selected matching archive is not duplicated', () => {
     const s = summary()
     const past = [{ team: 'eq118', build: 'same' }, { team: 'eq110', build: 'same' }]

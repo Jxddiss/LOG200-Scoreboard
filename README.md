@@ -133,7 +133,7 @@ joué par l'équipe (toutes sessions) est actif ; si un ancien hash rejoue, il r
 actif sans changer de numéro. Seuls les builds ayant déjà joué apparaissent.
 
 Les lignes archivées montrent leurs propres victoires/défaites, leur dernier Elo et
-leur maximum historique, sans rang actuel ni badge de partie en cours. Les temps par
-coup non publiés pour ces builds restent vides. Elles ne recalculent pas le classement.
+leur maximum historique et leurs temps par coup, sans rang actuel ni badge de partie en
+cours, à la place de leur Elo dans le classement. Elles ne recalculent pas le classement.
 Les sessions, tournois et parties distantes suivent les mêmes filtres que la vue active.
 Les historiques des seules équipes archivées sélectionnées sont lus à la demande.

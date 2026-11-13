@@ -109,6 +109,9 @@ pub(super) struct RatingRow<'a> {
     pub(super) build: Option<&'a str>,
     pub(super) last: &'a str,
     pub(super) pace: Option<PaceView>,
+    /// Temps par coup des autres builds de l'équipe, par hash ; seulement avec `--archives`.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub(super) archived_paces: BTreeMap<&'a str, PaceView>,
 }
 
 #[derive(Serialize)]

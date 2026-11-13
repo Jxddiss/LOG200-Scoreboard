@@ -206,8 +206,9 @@ impl Scope {
         self.recent.push_back(row);
     }
 
-    /// Meilleur rating d'abord. Temps par coup : ceux du build courant de l'équipe.
-    fn ratings(&self) -> Vec<RatingRow<'_>> {
+    /// Meilleur rating d'abord. Temps par coup : ceux du build courant de l'équipe, et avec `archives`
+    /// ceux de ses autres builds.
+    fn ratings(&self, archives: bool) -> Vec<RatingRow<'_>> {
         let mut rows: Vec<_> = self.teams.iter().collect();
         rows.sort_by(|(_, a), (_, b)| b.rating.total_cmp(&a.rating).then(a.order.cmp(&b.order)));
         rows.into_iter()
@@ -226,15 +227,24 @@ impl Scope {
                 build: s.build.as_deref(),
                 last: &s.last,
                 pace: s.paces.get(&s.build).map(Pace::view),
+                archived_paces: if archives {
+                    s.paces
+                        .iter()
+                        .filter(|(build, _)| **build != s.build)
+                        .filter_map(|(build, pace)| Some((build.as_deref()?, pace.view())))
+                        .collect()
+                } else {
+                    BTreeMap::new()
+                },
             })
             .collect()
     }
 
-    fn view(&self) -> ScopeView<'_> {
+    fn view(&self, archives: bool) -> ScopeView<'_> {
         ScopeView {
             games: self.games,
             time_ms: &self.time_ms,
-            ratings: self.ratings(),
+            ratings: self.ratings(archives),
             recent: &self.recent,
         }
     }
@@ -272,12 +282,12 @@ impl Scopes {
         self.session(&row.session).push_recent(row.clone());
     }
 
-    fn views<'a>(&'a self, sessions: &[&'a str]) -> BTreeMap<&'a str, ScopeView<'a>> {
+    fn views<'a>(&'a self, sessions: &[&'a str], archives: bool) -> BTreeMap<&'a str, ScopeView<'a>> {
         let mut views: BTreeMap<_, _> = sessions
             .iter()
-            .filter_map(|&name| self.sessions.get(name).map(|scope| (name, scope.view())))
+            .filter_map(|&name| self.sessions.get(name).map(|scope| (name, scope.view(archives))))
             .collect();
-        views.insert(ALL, self.all.view());
+        views.insert(ALL, self.all.view(archives));
         views
     }
 }
@@ -464,8 +474,8 @@ impl Standings {
         let sessions: Vec<&str> = sessions.into_iter().map(|(name, _)| name.as_str()).collect();
         Summary {
             v: 1,
-            scopes: self.full.views(&sessions),
-            verified: self.any_remote.then(|| self.verified.views(&sessions)),
+            scopes: self.full.views(&sessions, self.archives),
+            verified: self.any_remote.then(|| self.verified.views(&sessions, self.archives)),
             sessions,
             builds: &self.builds,
             archives: self.archives,
@@ -548,7 +558,7 @@ mod tests {
         let out = scope.play(&game("a", "b", Color::Red));
         assert_eq!(out.red, [START + 20.0, 20.0]);
         assert_eq!(out.black, [START - 20.0, -20.0]);
-        let ratings = scope.ratings();
+        let ratings = scope.ratings(false);
         assert_eq!(ratings[0].team, "a");
         assert_eq!((ratings[0].wins, ratings[1].losses), (1, 1));
         assert!(ratings[0].provisional);
@@ -561,7 +571,7 @@ mod tests {
         g.black.anchor = true;
         assert_eq!(scope.play(&g).black, [START, 0.0]);
         assert_eq!(scope.play(&game("ref", "a", Color::Red)).red, [START, 0.0]);
-        let ratings = scope.ratings();
+        let ratings = scope.ratings(false);
         let r = rating(&ratings, "ref");
         assert_eq!((r.rating, r.games, r.provisional, r.anchor), (START, 2, false, true));
     }
@@ -574,11 +584,11 @@ mod tests {
             g.red.build = Some("v1".into());
             scope.play(&g);
         }
-        assert!(!rating(&scope.ratings(), "a").provisional);
+        assert!(!rating(&scope.ratings(false), "a").provisional);
         let mut next = game("a", "b", Color::Red);
         next.red.build = Some("v2".into());
         scope.play(&next);
-        let ratings = scope.ratings();
+        let ratings = scope.ratings(false);
         let a = rating(&ratings, "a");
         assert!(a.provisional);
         assert_eq!((a.games, a.build), (PROVISIONAL_GAMES + 1, Some("v2")));
@@ -590,7 +600,7 @@ mod tests {
         let mut scope = Scope::default();
         scope.play(&game("a", "b", Color::Red));
         scope.play(&game("a", "b", Color::Black));
-        let ratings = scope.ratings();
+        let ratings = scope.ratings(false);
         let a = rating(&ratings, "a");
         assert!(a.peak > a.rating && a.peak > START);
     }
@@ -606,13 +616,13 @@ mod tests {
         assert!(row["black"].get("remote").is_none());
         g.red.remote = false;
         standings.play(&g);
-        let ratings = standings.full.all.ratings();
+        let ratings = standings.full.all.ratings(false);
         assert!(rating(&ratings, "a").remote);
         assert!(!rating(&ratings, "b").remote);
 
         g.red.build = Some("v2".into());
         standings.play(&g);
-        assert!(!rating(&standings.full.all.ratings(), "a").remote);
+        assert!(!rating(&standings.full.all.ratings(false), "a").remote);
     }
 
     #[test]
@@ -730,7 +740,7 @@ mod tests {
         broken.result.moves = vec![String::new(); 2];
         broken.result.move_ms = vec![9999];
         scope.play(&broken);
-        let ratings = scope.ratings();
+        let ratings = scope.ratings(false);
         let pace = rating(&ratings, "a").pace.as_ref().unwrap();
         assert_eq!((pace.p50, pace.p95, pace.p99, pace.max), (50, 95, 99, 100));
         assert_eq!((pace.count, pace.limit, pace.mean), (100, 500, 51));
@@ -739,7 +749,13 @@ mod tests {
         let mut newer = game("a", "b", Color::Red);
         newer.red.build = Some("v2".into());
         scope.play(&newer);
-        assert!(rating(&scope.ratings(), "a").pace.is_none());
+        assert!(rating(&scope.ratings(false), "a").pace.is_none());
+        assert!(rating(&scope.ratings(false), "a").archived_paces.is_empty());
+        let ratings = scope.ratings(true);
+        let archived = &rating(&ratings, "a").archived_paces;
+        assert_eq!(archived.keys().copied().collect::<Vec<_>>(), ["v1"]);
+        assert_eq!((archived["v1"].p50, archived["v1"].count), (50, 100));
+        assert!(rating(&ratings, "b").archived_paces.is_empty());
     }
 
     #[test]
