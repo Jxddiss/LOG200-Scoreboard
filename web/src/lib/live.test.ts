@@ -57,7 +57,30 @@ test("la partie suivie est la plus récente des équipes choisies, selon le filt
         ['g3', game('g3', { red: 'a', black: 'd', since: '2026-11-01T10:09:00Z', ended: { winner: 'red' } })],
     ])
     assert.equal(pickLive(games, ['a'], false).id, 'g2', 'la plus récente non finie')
+    assert.equal(pickLive(games, ['a'], true).id, 'g2', 'entre elles avec une seule équipe garde ses parties')
     assert.equal(pickLive(games, ['a', 'b'], true).id, 'g1', 'entre elles : les deux équipes choisies')
     assert.equal(pickLive(games, ['d'], false), undefined, 'partie finie exclue')
     assert.equal(pickLive(games, [], false), undefined)
+})
+
+test('the followed game receives its end state when no other game is active', () => {
+    let games = apply(new Map(), snapshot(game('g1', { since: '2026-11-01T10:00:00Z' })), 0)
+    const followed = pickLive(games, ['a'], true).id
+    games = apply(games, { v: 1, type: 'ended', id: followed, winner: 'red', reason: 'no_moves' }, 50)
+
+    assert.deepEqual(pickLive(games, ['a'], true, followed)?.ended, {
+        winner: 'red', reason: 'no_moves', cancelled: false,
+    })
+})
+
+test('the live fallback prioritizes active games and respects the filter', () => {
+    const games = new Map([
+        ['g1', game('g1', { since: '2026-11-01T10:09:00Z', ended: { winner: 'red' } })],
+        ['g2', game('g2', { red: 'a', black: 'c', since: '2026-11-01T10:05:00Z' })],
+    ])
+
+    assert.equal(pickLive(games, ['a'], false, 'g1').id, 'g2')
+    assert.equal(pickLive(games, ['unknown'], false, 'g1'), undefined)
+    assert.equal(pickLive(games, ['b', 'c'], true, 'g1'), undefined)
+    assert.equal(pickLive(games, [], false, 'g1'), undefined)
 })

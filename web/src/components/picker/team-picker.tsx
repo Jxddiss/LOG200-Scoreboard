@@ -1,9 +1,7 @@
-// Champ à puces des équipes (motif ARIA combobox).
-
 import { ChevronDownIcon, CloseIcon } from '@/components/icons/icons';
 import { cn } from '@/lib/utils';
 import type { TTeamRating } from '@/types/summary.types';
-import { useLayoutEffect, useRef, useState, type FC, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type FC, type KeyboardEvent, type PointerEventHandler } from 'react';
 
 type Props = {
   // Classement de la session, meilleure d'abord.
@@ -13,13 +11,17 @@ type Props = {
   placeholder: string;
   chipsLabel: string;
   className?: string;
-  // Pastille colorée, aucune sans.
   color?: (team: string) => string;
-  // Puce grisée.
   idle?: (team: string) => boolean;
 };
 
+// On iOS, cancelling touch pointerdown or closing on a null blur can prevent option activation.
+const keepMouseFocus: PointerEventHandler<HTMLElement> = (e) => {
+  if (e.pointerType === 'mouse') e.preventDefault();
+};
+
 const TeamPicker: FC<Props> = ({ ratings, selected, onChange, placeholder, chipsLabel, className, color, idle }) => {
+  const root = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLUListElement>(null);
   const [query, setQuery] = useState('');
@@ -33,6 +35,17 @@ const TeamPicker: FC<Props> = ({ ratings, selected, onChange, placeholder, chips
     .map((r) => ({ ...r, rank: r.build ? ++rank : 0 }))
     .filter((r) => !taken.has(r.team) && r.team.toLowerCase().includes(search));
   const current = Math.min(active, options.length - 1);
+
+  useEffect(() => {
+    const closeOutside = (e: PointerEvent) => {
+      if (e.target instanceof Node && !root.current?.contains(e.target)) {
+        setOpen(false);
+        setActive(-1);
+      }
+    };
+    document.addEventListener('pointerdown', closeOutside);
+    return () => document.removeEventListener('pointerdown', closeOutside);
+  }, []);
 
   useLayoutEffect(() => {
     if (open && current >= 0) list.current?.querySelector(`#pick-${current}`)?.scrollIntoView({ block: 'nearest' });
@@ -49,7 +62,10 @@ const TeamPicker: FC<Props> = ({ ratings, selected, onChange, placeholder, chips
     setActive(-1);
   };
 
-  const remove = (team: string) => onChange(selected.filter((t) => t !== team));
+  const remove = (team: string) => {
+    onChange(selected.filter((t) => t !== team));
+    field.current?.focus();
+  };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     const last = options.length - 1;
@@ -70,10 +86,11 @@ const TeamPicker: FC<Props> = ({ ratings, selected, onChange, placeholder, chips
 
   return (
     <div
+      ref={root}
       id="picker"
       className={cn('picker', className)}
       onBlur={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget)) openList(false);
+        if (e.relatedTarget && !e.currentTarget.contains(e.relatedTarget)) openList(false);
       }}
       onClick={(e) => {
         if (!(e.target as Element).closest('button, li')) field.current?.focus();
@@ -117,14 +134,13 @@ const TeamPicker: FC<Props> = ({ ratings, selected, onChange, placeholder, chips
         }}
         onKeyDown={handleKeyDown}
       />
-      {/* Les boutons du cadre ne prennent pas le focus : la liste ne se ferme pas sous le clic. */}
       <button
         id="picker-clear"
         className="picker-icon"
         type="button"
         aria-label="Retirer toutes les équipes"
         hidden={!selected.length}
-        onPointerDown={(e) => e.preventDefault()}
+        onPointerDown={keepMouseFocus}
         onClick={() => {
           onChange([]);
           field.current?.focus();
@@ -136,12 +152,16 @@ const TeamPicker: FC<Props> = ({ ratings, selected, onChange, placeholder, chips
         id="picker-toggle"
         className="picker-icon"
         type="button"
-        tabIndex={-1}
         aria-label="Afficher les équipes"
-        onPointerDown={(e) => e.preventDefault()}
+        aria-expanded={open}
+        aria-controls="picker-list"
+        onPointerDown={keepMouseFocus}
         onClick={() => {
-          openList(!open);
-          field.current?.focus();
+          if (open) openList(false);
+          else {
+            field.current?.focus();
+            openList(true);
+          }
         }}
       >
         <ChevronDownIcon />
@@ -155,8 +175,7 @@ const TeamPicker: FC<Props> = ({ ratings, selected, onChange, placeholder, chips
               role="option"
               className="picker-option"
               aria-selected={i === current}
-              // Garde le focus dans le champ : la liste reste ouverte pour en ajouter d'autres.
-              onPointerDown={(e) => e.preventDefault()}
+              onPointerDown={keepMouseFocus}
               onClick={() => add(r.team)}
             >
               <span className="option-rank">{r.rank ? String(r.rank) : 'bot'}</span>

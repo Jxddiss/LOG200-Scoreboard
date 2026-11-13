@@ -1,7 +1,7 @@
 // Rangs de la page graphe, rejoués partie par partie depuis timeline.jsonl (format dans docs/formats.md).
 // Un côté sans build est un bot de référence : il ne compte dans le classement que s'il est choisi.
 
-import type { TGameRow, TRatingKey } from '../types/games.types';
+import type { TRatingKey, TRatingRow } from '../types/games.types';
 import { isRemote, ratingOf } from './elo.ts';
 
 export const TOP = 10;
@@ -15,7 +15,7 @@ export type TRankPoint = {
   bot: boolean;
 };
 
-export type TSmoothPoint = { x: number; rank: number };
+type TSmoothPoint = { x: number; rank: number };
 
 export function topTeams(ratings: { team: string; build?: string }[], n = TOP) {
   return ratings
@@ -28,7 +28,7 @@ export function topTeams(ratings: { team: string; build?: string }[], n = TOP) {
 // chaque changement de rang, de rating ou de build. Rang : 1 + équipes et bots choisis devant (rating
 // plus haut, puis nom). `verified` : sans les parties distantes.
 export function rankSeries(
-  rows: TGameRow[],
+  rows: TRatingRow[],
   {
     key = 'all',
     session = '',
@@ -42,7 +42,7 @@ export function rankSeries(
   const counted = (team: string) => !bots.has(team) || series.has(team);
   const builds = new Map<string, string>();
   const series = new Map<string, TRankPoint[]>(selected.map((team) => [team, []]));
-  const columns: TGameRow[] = [];
+  const columns: TRatingRow[] = [];
   for (const g of rows) {
     if ((session && g.session !== session) || (verified && isRemote(g))) continue;
     const changed = new Map<string, string>();
@@ -92,7 +92,7 @@ export function pointAt<T extends { x: number }>(points: T[], x: number): T | un
 }
 
 // Rang moyen par paquet quand `count` colonnes ne tiennent pas en `buckets`, sinon la série telle quelle.
-export function smooth(points: TRankPoint[], count: number, buckets: number): TRankPoint[] | TSmoothPoint[] {
+export function smooth(points: TRankPoint[], count: number, buckets: number): TSmoothPoint[] {
   if (count <= buckets || !points.length) return points;
   const out: TSmoothPoint[] = [];
   const size = count / buckets;

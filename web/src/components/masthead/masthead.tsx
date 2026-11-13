@@ -19,10 +19,8 @@ const Masthead: FC<Props> = ({ current, showVersion = true, children }) => {
         {pages.map(({ key, label, href }) => (
           <a
             key={key}
-            href={href}
+            href={pageUrl(href)}
             aria-current={key === current ? 'page' : undefined}
-            // Complété au clic, avec les choix du moment.
-            onClick={(e) => (e.currentTarget.href = pageUrl(href))}
           >
             {label}
           </a>
