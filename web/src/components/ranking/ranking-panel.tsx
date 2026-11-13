@@ -10,7 +10,7 @@ import { ELO_STATS, PACE_STATS, RECORD_STATS, type TEloStat, type TRecordStat } 
 import { RankingRow, type TDuel } from './ranking-row';
 
 type Props = {
-  // Lignes actives, et versions archivées choisies sous leur équipe.
+  // Lignes actives, et versions archivées choisies placées à leur Elo.
   ratings: TRankingRow[];
   // Filtre des archives, sous le titre.
   children?: ReactNode;

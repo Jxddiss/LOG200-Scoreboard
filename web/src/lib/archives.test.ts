@@ -66,12 +66,16 @@ test('several archived versions of the same team can be selected independently',
 })
 
 
-test('selected archive rows sit under their team without hiding historical-only teams', () => {
-    const active = [{ team: 'eq118', build: 'new' }, { team: 'eq110', build: 'new' }]
-    const old = [{ team: 'eq110', build: 'old', archived: true }, { team: 'eq120', build: 'old', archived: true }]
-    assert.deepEqual(withArchivedRows(active, old), [active[0], active[1], old[0], old[1]])
+test('selected archive rows take their Elo place, after an active row at the same Elo', () => {
+    const active = [{ team: 'eq118', build: 'new', rating: 1600 }, { team: 'eq110', build: 'new', rating: 1500 }]
+    const old = [{ team: 'eq110', build: 'old', rating: 1550, archived: true },
+        { team: 'eq120', build: 'old', rating: 1400, archived: true },
+        { team: 'eq130', build: 'old', rating: 1500, archived: true },
+        { team: 'eq118', build: 'mid', rating: 1700, archived: true }]
+    assert.deepEqual(withArchivedRows(active, old), [old[3], active[0], old[0], active[1], old[2], old[1]])
     assert.deepEqual(withArchivedRows(active, []), active)
     assert.equal(active.length, 2)
+    assert.equal(old[0].team, 'eq110')
 })
 
 test('past session rows stay visible and a selected matching archive is not duplicated', () => {
