@@ -10,8 +10,12 @@ mod migrate;
 
 // Matchmaking et parties
 mod arena;
+mod bridge;
 mod command;
+mod exec;
+mod node;
 mod pairs;
+mod placement;
 mod play;
 mod roster;
 mod schedule;

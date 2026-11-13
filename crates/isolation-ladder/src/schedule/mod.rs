@@ -278,6 +278,7 @@ mod tests {
             build: Some(format!("{id}.jar").into()),
             anchor: false,
             multithread: false,
+            portable: false,
             remote: None,
         }
     }
@@ -374,6 +375,7 @@ mod tests {
             red: player(red),
             black: player(black),
             tournament: None,
+            node: None,
             result: GameResult {
                 v: RECORD_VERSION,
                 time_ms: 500,

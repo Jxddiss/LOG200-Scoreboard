@@ -9,7 +9,8 @@ use std::time::Duration;
 use serde::Deserialize;
 use thiserror::Error;
 
-use crate::command::CommandTemplate;
+use crate::command::{CommandTemplate, ExecConfig};
+
 use crate::team_id::TeamId;
 use crate::tournament::calendar::Schedule;
 
@@ -68,11 +69,16 @@ pub struct Config {
     pub tournament: Option<TournamentConfig>,
     /// Garde-fou thermique (`thermal.rs`). Absent : les parties partent quelle que soit la température.
     pub thermal: Option<ThermalConfig>,
+    /// Nœuds de calcul (`node/`). Absent : tout se joue ici.
+    pub nodes: Option<NodesConfig>,
     #[serde(default, rename = "team")]
     pub teams: Vec<TeamConfig>,
+    /// Ce qu'il faut pour lancer une partie ici, tiré des clés ci-dessus (`command::ExecConfig`).
+    #[serde(skip)]
+    pub exec: ExecConfig,
 }
 
-fn default_port() -> u16 {
+pub fn default_port() -> u16 {
     8888
 }
 fn default_out() -> PathBuf {
@@ -84,16 +90,16 @@ fn default_db() -> PathBuf {
 fn default_opening_plies() -> usize {
     2
 }
-fn default_ready_marker() -> String {
+pub fn default_ready_marker() -> String {
     "LISTENING".into()
 }
-fn default_red_connected_marker() -> String {
+pub fn default_red_connected_marker() -> String {
     "CONNECTED red".into()
 }
-fn default_startup_ms() -> u64 {
+pub fn default_startup_ms() -> u64 {
     1000
 }
-fn default_team_cmd() -> CommandTemplate {
+pub fn default_team_cmd() -> CommandTemplate {
     CommandTemplate::new(["sandbox/run-player.sh", "{game}", "{side}", "{port}", "{jar}"])
 }
 
@@ -117,7 +123,8 @@ impl FromStr for Config {
     type Err = ConfigError;
 
     fn from_str(text: &str) -> Result<Self, ConfigError> {
-        let config: Self = toml::from_str(text)?;
+        let mut config: Self = toml::from_str(text)?;
+        config.exec = ExecConfig::from(&config);
         if !config.opening_plies.is_multiple_of(2) {
             return Err(ConfigError::OddOpening(config.opening_plies));
         }
@@ -180,15 +187,6 @@ impl Config {
             .count()
     }
 
-    /// Faute de slot du genre voulu, l'autre, pour qu'aucune partie n'attende un slot qui n'existe pas.
-    pub fn slot_kind(&self, multithread: bool) -> bool {
-        if self.slots_of(multithread) > 0 {
-            multithread
-        } else {
-            !multithread
-        }
-    }
-
     pub fn tournament_settings(&self) -> TournamentConfig {
         self.tournament.clone().unwrap_or_default()
     }
@@ -198,7 +196,7 @@ impl Config {
     }
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, Clone)]
 pub struct Slot {
     /// Réservé aux parties d'une équipe `multithread`, qui seules y jouent.
     #[serde(default)]
@@ -220,6 +218,10 @@ pub struct TeamConfig {
     /// Ses parties se jouent dans les slots `multithread`, adversaire compris.
     #[serde(default)]
     pub multithread: bool,
+    /// Bot dont la force ne dépend pas de la machine (aléatoire, profondeur fixe) : il peut jouer sur
+    /// un nœud.
+    #[serde(default)]
+    pub portable: bool,
 }
 
 #[derive(Deserialize, Clone)]
@@ -270,6 +272,30 @@ impl Default for TournamentConfig {
             min_teams: 4,
             catch_up_h: 2,
             retries: 3,
+        }
+    }
+}
+
+#[derive(Deserialize, Clone)]
+#[serde(default, deny_unknown_fields)]
+pub struct NodesConfig {
+    /// Où les nœuds se connectent : le LAN seulement, jamais derrière le proxy public.
+    pub listen: String,
+    /// Registre des nœuds (`add-node`) : id et sha256 du token.
+    pub tokens: PathBuf,
+    /// Une équipe est portable si le p99 de son build actif est strictement en dessous...
+    pub portable_p99_ms: u64,
+    /// ... sur au moins ce nombre de coups joués ici.
+    pub portable_min_moves: u64,
+}
+
+impl Default for NodesConfig {
+    fn default() -> Self {
+        Self {
+            listen: "0.0.0.0:8093".into(),
+            tokens: "jars/nodes.toml".into(),
+            portable_p99_ms: 100,
+            portable_min_moves: 200,
         }
     }
 }
@@ -338,6 +364,19 @@ pub mod tests {
     use super::*;
 
     pub const MINIMAL: &str = "referee = [\"r\", \"{port}\", \"{opening}\"]\ntime_ms = 1000\nsession = \"s\"\n";
+
+    #[test]
+    fn nodes_section_has_defaults_and_rejects_unknown_keys() {
+        let cfg: Config = format!("{MINIMAL}[nodes]\n").parse().unwrap();
+        let nodes = cfg.nodes.unwrap();
+        assert_eq!((nodes.portable_p99_ms, nodes.portable_min_moves), (100, 200));
+        assert!(
+            format!("{MINIMAL}[nodes]\nportable_p99 = 3\n")
+                .parse::<Config>()
+                .is_err()
+        );
+        assert!(MINIMAL.parse::<Config>().unwrap().nodes.is_none());
+    }
 
     #[test]
     fn example_config_parses() {

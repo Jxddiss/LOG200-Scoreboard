@@ -348,6 +348,7 @@ pub(super) mod tests {
                 build: None,
                 anchor: false,
                 multithread: false,
+                portable: false,
                 remote: None,
             })
             .collect();
@@ -391,6 +392,7 @@ pub(super) mod tests {
             red: player(&p.red),
             black: player(&p.black),
             tournament: Some(p.game.clone()),
+            node: None,
             result: GameResult {
                 v: RECORD_VERSION,
                 time_ms: 5000,

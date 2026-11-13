@@ -68,6 +68,7 @@ impl Registry {
                 build: None,
                 anchor: false,
                 multithread: false,
+                portable: false,
                 remote: Some(Seat {
                     registry: Arc::clone(self),
                     team: session.team.clone(),
@@ -228,7 +229,7 @@ pub async fn upgrade(
         .max_frame_size(session::MAX_MESSAGE)
         .on_upgrade(move |socket| async move {
             let _open = open;
-            let (socket, pump) = session::connect(socket);
+            let (socket, pump) = crate::bridge::connect(socket);
             let remote = Arc::clone(&remote);
             thread::spawn(move || session::run(socket, &remote.registry, &team, &peer.to_string(), remote.time_ms));
             pump.await;

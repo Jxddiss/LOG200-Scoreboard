@@ -23,7 +23,8 @@ use crate::migrate::open_db;
 use crate::pairs::Pairs;
 use crate::play::{Report, live_hub, remote_registry};
 use crate::remote::Registry;
-use crate::roster::{Team, multithread_game, roster};
+use crate::roster::{Builds, portable_teams, roster};
+
 use crate::schedule::Scheduler;
 use crate::standings::Standings;
 use crate::thermal::Thermal;
@@ -57,6 +58,7 @@ pub fn run(path: &Path, rounds: Option<u64>, archives: bool) -> anyhow::Result<(
     arena.sweep();
     let _api = api::serve(&arena, &hub, remote.as_ref())?;
 
+    let pairs = Pairs::new(scheduler, Arc::clone(arena.placement()));
     let mut ladder = Ladder {
         thermal: Thermal::new(arena.config().thermal.as_ref()),
         arena,
@@ -65,11 +67,14 @@ pub fn run(path: &Path, rounds: Option<u64>, archives: bool) -> anyhow::Result<(
         tournaments,
         live,
         remote,
-        pairs: Pairs::new(scheduler),
+        pairs,
+
         reports,
         rounds,
         rng: rand::rng(),
         warned: HashSet::new(),
+        builds: Builds::default(),
+
         said_waiting: false,
     };
     loop {
@@ -129,6 +134,7 @@ struct Ladder {
     rng: ThreadRng,
     /// Équipes inscrites déjà signalées en doublon d'une équipe fixe.
     warned: HashSet<String>,
+    builds: Builds,
     said_waiting: bool,
 }
 
@@ -155,6 +161,9 @@ impl Ladder {
                 .launch_tournament(&self.arena, &mut self.tournaments, &self.reports);
         }
         let teams = roster(cfg, self.remote.as_ref(), &mut self.warned);
+        let standings = &self.standings;
+        let portable = portable_teams(cfg, &teams, &mut self.builds, |t, b| standings.pace(t, b));
+        self.pairs.set_portable(portable);
         let waiting = self.tournaments.waiting();
         self.pairs.cancel_stale(cfg, &teams, &waiting);
         if !cool {
@@ -162,26 +171,20 @@ impl Ladder {
         }
         self.pairs
             .launch_announced(&self.arena, &teams, &self.reports, &mut self.rng);
-        if self.pairs.running.iter().sum::<usize>() >= cfg.slots() || !self.pairs.open(self.rounds) {
+        if !self.pairs.open(self.rounds) {
             return false;
         }
         let unavailable = self.pairs.unavailable(&waiting, None);
-        let running = self.pairs.running;
-        let fits = |a: &Team, b: &Team| {
-            let multithread = multithread_game(cfg, a, b);
-            running[usize::from(multithread)] < cfg.slots_of(multithread)
-        };
         let standings = &self.standings;
         let next = self
             .pairs
-            .scheduler
-            .next_pair(&teams, &unavailable, fits, |id| standings.rating(id), &mut self.rng);
+            .next_pair(&teams, &unavailable, |id| standings.rating(id), &mut self.rng);
         if let Some((a, b)) = next {
             self.said_waiting = false;
             let pair = [a.clone(), b.clone()];
-            self.pairs
+            return self
+                .pairs
                 .launch(&self.arena, &teams, pair, &self.reports, &mut self.rng);
-            return true;
         }
         if self.pairs.idle() && !self.said_waiting {
             eprintln!("en attente d'au moins deux équipes ({} pour l'instant)", teams.len());
@@ -213,13 +216,16 @@ impl Ladder {
                 if !self.arena.draining() && self.pairs.open(self.rounds) {
                     let teams = roster(cfg, self.remote.as_ref(), &mut self.warned);
                     let standings = &self.standings;
+                    let portable = portable_teams(cfg, &teams, &mut self.builds, |t, b| standings.pace(t, b));
+                    self.pairs.set_portable(portable);
                     let waiting = self.tournaments.waiting();
                     let rating = |id: &str| standings.rating(id);
                     self.pairs.announce(cfg, &teams, &waiting, rest, rating, &mut self.rng);
                 }
             }
-            Report::Done { pair, multithread } => {
-                self.pairs.done(&pair, multithread);
+            Report::Done { pair, lease } => {
+                self.pairs.done(&pair, lease);
+
                 prune_logs(&cfg.logs_dir(), LOG_RETENTION);
             }
         }

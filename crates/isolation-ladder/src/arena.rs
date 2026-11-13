@@ -1,37 +1,31 @@
-//! Déroulé d'une partie : lancer l'arbitre (n'importe quel programme qui respecte le contrat),
-//! attendre qu'il écoute, lancer le rouge, attendre sa connexion, lancer le noir, lire le résultat.
+//! Une partie du ladder : son slot, son id, ses entrées, son direct et son enregistrement. Le
+//! déroulé lui-même est celui d'un exécuteur (`exec.rs`).
 
-use std::fs::{self, File};
-use std::io::{self, BufRead, BufReader, Read, Write};
-use std::path::Path;
-use std::process::{Child, Command, ExitStatus, Stdio};
+use std::fs;
+use std::io;
+use std::path::PathBuf;
+use std::process::ExitStatus;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
-use std::sync::{Arc, Condvar, Mutex, PoisonError};
-use std::thread;
 use std::time::Duration;
 
 use thiserror::Error;
 
-use isolation_core::board::{Color, Move};
+use isolation_core::board::{ByColor, Color, Move};
 use isolation_core::digest::short_hash;
-use isolation_core::notation;
 use isolation_core::record::{
     GameRecord, GameResult, Player, Reason, RefereeEvent, TournamentGame, ValidationError, now_rfc3339,
 };
 
-use crate::command::Vars;
 use crate::config::Config;
+use crate::exec::{Executor, GameOutput, GameRun, Local};
 use crate::hub::{self, Hub};
-use crate::remote::{GameSpec, Seat, Seated};
-use crate::roster::{Team, multithread_game};
-use crate::store::compact_timestamp;
-use crate::sync::lock;
+use crate::node::hub::NodeHub;
+use crate::placement::{Lease, Placement, SlotId};
 
-/// Au-delà, le journal d'un joueur est tronqué : un jar ne doit pas pouvoir remplir le disque.
-const LOG_CAP: usize = 1 << 20;
-const MARKER_TIMEOUT: Duration = Duration::from_secs(60);
-const LOG_FLUSH_TIMEOUT: Duration = Duration::from_secs(2);
+use crate::remote::Seat;
+use crate::roster::Team;
+use crate::store::compact_timestamp;
 
 #[derive(Debug, Error)]
 pub enum GameError {
@@ -52,6 +46,15 @@ pub enum GameError {
     /// Partie de tournoi avant son dernier essai (`Fixture::forfeit_counts`).
     #[error("{0} jamais connecté à l'arbitre, partie rejouée")]
     NoShow(String),
+    /// Le bac à sable d'un joueur n'a jamais démarré (Docker, gVisor) : le serveur est en faute.
+    #[error("bac à sable du joueur {side} jamais démarré (code {code}), partie annulée")]
+    Infra { side: Color, code: i32 },
+    /// Le nœud qui jouait a échoué : arbitre, lancement, délai.
+    #[error("nœud {node} : {message}")]
+    Remote { node: String, message: String },
+    /// Le nœud qui jouait a disparu en pleine partie : elle est rejouée ailleurs.
+    #[error("nœud {0} perdu pendant la partie")]
+    NodeLost(String),
 }
 
 /// Partie de tournoi : son temps par coup et sa session remplacent ceux du ladder.
@@ -80,8 +83,10 @@ impl Sigterm {
 /// Joue au plus une partie par slot, ladder et smoke tests confondus : pas de port ni de coeur partagé.
 pub struct Arena {
     cfg: Config,
-    free: Mutex<Vec<usize>>,
-    freed: Condvar,
+    placement: Arc<Placement>,
+    local: Arc<Local>,
+    /// Registre des nœuds, si `[nodes]` est configuré.
+    nodes: Option<Arc<NodeHub>>,
     /// Levé par SIGTERM : plus de nouvelle partie, on finit celles en cours.
     draining: AtomicBool,
     smoke_tests: AtomicUsize,
@@ -90,11 +95,20 @@ pub struct Arena {
 
 impl Arena {
     pub fn new(cfg: Config, hub: Arc<Hub>) -> Self {
-        let free = (0..cfg.slots()).rev().collect();
+        let placement = Placement::new(&cfg);
+        // L'état des nœuds (noms d'hôtes internes, erreurs) va à côté de la base, jamais dans data/,
+        // que la page publie.
+        let state = cfg.db.parent().unwrap_or(std::path::Path::new(".")).to_path_buf();
+        let nodes = cfg
+            .nodes
+            .as_ref()
+            .map(|nodes| NodeHub::new(Arc::clone(&placement), nodes.tokens.clone(), state));
+
         Self {
+            placement,
+            local: Arc::new(Local::new(cfg.exec.clone())),
+            nodes,
             cfg,
-            free: Mutex::new(free),
-            freed: Condvar::new(),
             draining: AtomicBool::new(false),
             smoke_tests: AtomicUsize::new(0),
             hub,
@@ -105,10 +119,26 @@ impl Arena {
         &self.cfg
     }
 
+    pub const fn placement(&self) -> &Arc<Placement> {
+        &self.placement
+    }
+
+    pub const fn nodes(&self) -> Option<&Arc<NodeHub>> {
+        self.nodes.as_ref()
+    }
+
+    /// Qui joue sur ce slot : cette machine, ou le nœud qui le prête.
+    fn executor(&self, slot: &SlotId) -> Arc<dyn Executor> {
+        match &self.nodes {
+            Some(nodes) if !slot.local() => nodes.executor(&slot.node),
+            _ => Arc::clone(&self.local) as Arc<dyn Executor>,
+        }
+    }
+
     #[cfg(unix)]
     pub fn drain_on(self: &Arc<Self>, mut sigterm: Sigterm) {
         let arena = Arc::clone(self);
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             for _ in sigterm.0.forever() {
                 arena.drain();
             }
@@ -123,6 +153,9 @@ impl Arena {
     pub fn drain(&self) {
         if !self.draining.swap(true, Ordering::SeqCst) {
             eprintln!("arrêt demandé : fin des parties en cours, aucune nouvelle");
+            if let Some(nodes) = &self.nodes {
+                nodes.drain();
+            }
         }
     }
 
@@ -142,37 +175,15 @@ impl Arena {
         self.smoke_tests.load(Ordering::SeqCst)
     }
 
-    /// Attend un slot libre de ce genre, celui de plus petit index.
-    fn take_slot(&self, multithread: bool) -> Slot<'_> {
-        let fits = |&index: &usize| self.cfg.multithread_slot(index) == multithread;
-        let free = lock(&self.free);
-        let mut free = self
-            .freed
-            .wait_while(free, |free| !free.iter().any(fits))
-            .unwrap_or_else(PoisonError::into_inner);
-        let Some(position) = free.iter().rposition(fits) else {
-            unreachable!("attendu tant qu'aucun slot de ce genre n'est libre");
-        };
-        Slot {
-            arena: self,
-            index: free.remove(position),
-        }
-    }
-
     /// Ramasse les restes d'un arrêt brutal : `cleanup` avec `{game}` vide.
     pub fn sweep(&self) {
-        let vars = Vars {
-            cfg: &self.cfg,
-            slot: 0,
-            opening: String::new(),
-            game: "",
-            time_ms: self.cfg.time_ms,
-        };
-        drop(CleanupGuard::new(&vars));
+        self.local.sweep();
     }
 
+    /// Joue sur le slot de `lease` ; sans bail (smoke test), sur un slot du serveur principal.
     pub fn play(
         &self,
+        lease: Option<&Lease>,
         red: &Team,
         black: &Team,
         opening: &[Move],
@@ -181,7 +192,10 @@ impl Arena {
     ) -> Result<GameRecord, GameError> {
         let cfg = &self.cfg;
         let time_ms = fixture.map_or(cfg.time_ms, |f| f.time_ms);
-        let slot = self.take_slot(multithread_game(cfg, red, black));
+        // La classe ne compte que pour un smoke test : un slot du serveur principal du bon genre.
+        let class = self.placement.class(red.multithread || black.multithread);
+        let slot = self.placement.occupy(lease, class);
+
         let ts = now_rfc3339();
         let id = format!("{}-{}-{}", compact_timestamp(&ts), red.id, black.id);
         let entry = |team: &Team| Player {
@@ -191,14 +205,6 @@ impl Arena {
             remote: team.remote.is_some(),
         };
         let (red_entry, black_entry) = (entry(red), entry(black));
-        let vars = Vars {
-            cfg,
-            slot: slot.index,
-            opening: notation::join(opening),
-            game: &id,
-            time_ms,
-        };
-        let _cleanup = CleanupGuard::new(&vars);
         let mut on_air = live.then(|| {
             self.hub.start(&hub::Start {
                 id: &id,
@@ -215,38 +221,24 @@ impl Arena {
                 result: None,
             }
         });
-        let referee = RefereeProcess::spawn(&vars, on_air.as_ref().map(|o| Arc::clone(&o.hub)))?;
-
-        let startup = Duration::from_millis(cfg.startup_ms);
-        let spawn_player = |team: &Team, side: Color| {
-            let log = cfg.player_log(&id, &team.id);
-            if let Some(seat) = &team.remote {
-                let connect = cfg.remote.as_ref().map(|r| vars.substitute(&r.connect, Some(side)));
-                return Ok(Contestant::Remote(seat.sit(GameSpec {
-                    id: id.clone(),
-                    side,
-                    time_ms,
-                    connect: connect.unwrap_or_default(),
-                    log,
-                })));
-            }
-            vars.command(&team.cmd, Some(side))
-                .and_then(|command| spawn_logged(command, &log))
-                .map(Contestant::Local)
-                .map_err(|error| GameError::Spawn {
-                    who: team.id.clone(),
-                    error,
-                })
+        let out = Arc::new(LadderOutput {
+            hub: on_air.as_ref().map(|o| Arc::clone(&o.hub)),
+            id: id.clone(),
+            logs: ByColor {
+                red: cfg.player_log(&id, &red.id),
+                black: cfg.player_log(&id, &black.id),
+            },
+        });
+        let run = GameRun {
+            id: &id,
+            slot: slot.index(),
+            time_ms,
+            opening,
+            red,
+            black,
+            timeout: cfg.game_timeout(time_ms),
         };
-        let mut players = Vec::with_capacity(2);
-        if referee.wait_for(&cfg.ready_marker, startup)? == Marker::Seen {
-            players.push(spawn_player(red, Color::Red)?);
-            if referee.wait_for(&cfg.red_connected_marker, startup)? == Marker::Seen {
-                players.push(spawn_player(black, Color::Black)?);
-            }
-        }
-        let result = referee.finish(cfg.game_timeout(time_ms))?;
-        drop(players);
+        let result = self.executor(slot.slot()).run(&run, out)?;
         if let Some(absent) = annulled_no_show(&result, fixture, red, black) {
             return Err(GameError::NoShow(absent.id.clone()));
         }
@@ -261,8 +253,28 @@ impl Arena {
             red: red_entry,
             black: black_entry,
             tournament: fixture.map(|f| f.game.clone()),
+            node: (!slot.slot().local()).then(|| slot.slot().node.to_string()),
             result,
         })
+    }
+}
+
+/// Le direct de la page et les journaux du serveur principal.
+struct LadderOutput {
+    hub: Option<Arc<Hub>>,
+    id: String,
+    logs: ByColor<PathBuf>,
+}
+
+impl GameOutput for LadderOutput {
+    fn event(&self, event: RefereeEvent) {
+        if let Some(hub) = &self.hub {
+            hub.event(&self.id, event);
+        }
+    }
+
+    fn log_path(&self, side: Color) -> PathBuf {
+        self.logs[side].clone()
     }
 }
 
@@ -275,20 +287,6 @@ struct OnAir {
 impl Drop for OnAir {
     fn drop(&mut self) {
         self.hub.end(&self.id, self.result);
-    }
-}
-
-struct Slot<'a> {
-    arena: &'a Arena,
-    index: usize,
-}
-
-impl Drop for Slot<'_> {
-    fn drop(&mut self) {
-        let mut free = lock(&self.arena.free);
-        free.push(self.index);
-        free.sort_unstable_by(|a, b| b.cmp(a));
-        self.arena.freed.notify_all();
     }
 }
 
@@ -319,283 +317,108 @@ fn build_hash(team: &Team) -> Option<String> {
     fs::read(team.build_file()?).ok().map(|bytes| short_hash(&bytes))
 }
 
-#[derive(PartialEq, Eq)]
-enum Marker {
-    Seen,
-    RefereeExited,
-}
-
-struct RefereeProcess {
-    process: Reaper,
-    lines: Receiver<String>,
-    result: Receiver<String>,
-}
-
-impl RefereeProcess {
-    fn spawn(vars: &Vars, hub: Option<Arc<Hub>>) -> Result<Self, GameError> {
-        let spawn_error = |error| GameError::Spawn {
-            who: "l'arbitre".into(),
-            error,
-        };
-        let mut child = vars
-            .command(&vars.cfg.referee, None)
-            .and_then(|mut c| c.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn())
-            .map_err(spawn_error)?;
-        let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
-            unreachable!("tubes demandés au lancement");
-        };
-
-        let (line_tx, lines) = mpsc::channel();
-        let game = vars.game.to_string();
-        let game_id = game.clone();
-        thread::spawn(move || {
-            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                eprintln!("   [{game}] {line}");
-                if line_tx.send(line).is_err() {
-                    break;
-                }
-            }
-        });
-        Ok(Self {
-            process: Reaper(child),
-            lines,
-            result: read_result(stdout, game_id, hub),
-        })
-    }
-
-    fn wait_for(&self, marker: &str, startup: Duration) -> Result<Marker, GameError> {
-        if marker.is_empty() {
-            thread::sleep(startup);
-            return Ok(Marker::Seen);
-        }
-        loop {
-            match self.lines.recv_timeout(MARKER_TIMEOUT) {
-                Ok(line) if line.trim().starts_with(marker) => return Ok(Marker::Seen),
-                Ok(_) => {}
-                Err(RecvTimeoutError::Disconnected) => return Ok(Marker::RefereeExited),
-                Err(RecvTimeoutError::Timeout) => return Err(GameError::MarkerNeverSeen(marker.into())),
-            }
-        }
-    }
-
-    fn finish(mut self, timeout: Duration) -> Result<GameResult, GameError> {
-        let json = self
-            .result
-            .recv_timeout(timeout)
-            .map_err(|_| GameError::Timeout(timeout))?;
-        let status = self.process.0.wait().map_err(GameError::Wait)?;
-        if !status.success() {
-            return Err(GameError::RefereeFailed(status));
-        }
-        let result: GameResult = serde_json::from_str(&json).map_err(|error| GameError::BadResult { json, error })?;
-        result.validate()?;
-        Ok(result)
-    }
-}
-
-enum Line {
-    Event(RefereeEvent),
-    UnknownEvent,
-    Result,
-    NotJson,
-}
-
-fn classify(line: &str) -> Line {
-    match serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(line) {
-        Ok(object) if object.contains_key("event") => {
-            serde_json::from_value(object.into()).map_or(Line::UnknownEvent, Line::Event)
-        }
-        Ok(_) => Line::Result,
-        Err(_) => Line::NotJson,
-    }
-}
-
-fn read_result(stdout: impl Read + Send + 'static, game: String, hub: Option<Arc<Hub>>) -> Receiver<String> {
-    let (tx, rx) = mpsc::channel();
-    thread::spawn(move || {
-        let mut last = String::new();
-        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            match classify(&line) {
-                Line::Event(event) => {
-                    if let Some(hub) = &hub {
-                        hub.event(&game, event);
-                    }
-                }
-                Line::UnknownEvent => {}
-                Line::Result => {
-                    let _ = tx.send(line);
-                    return;
-                }
-                Line::NotJson => {
-                    eprintln!("   [{game}] stdout ignoré : {line}");
-                    last = line;
-                }
-            }
-        }
-        let _ = tx.send(last);
-    });
-    rx
-}
-
-struct Reaper(Child);
-
-impl Drop for Reaper {
-    fn drop(&mut self) {
-        let _ = Command::new("pkill")
-            .args(["-KILL", "-P", &self.0.id().to_string()])
-            .status();
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
-
-struct CleanupGuard(Option<Command>);
-
-impl CleanupGuard {
-    fn new(vars: &Vars) -> Self {
-        let cleanup = &vars.cfg.cleanup;
-        Self(
-            (!cleanup.is_empty())
-                .then(|| vars.command(cleanup, None).ok())
-                .flatten(),
-        )
-    }
-}
-
-impl Drop for CleanupGuard {
-    fn drop(&mut self) {
-        if let Some(command) = &mut self.0 {
-            let _ = command.stdout(Stdio::null()).stderr(Stdio::null()).status();
-        }
-    }
-}
-
-enum Contestant {
-    Local(#[expect(dead_code, reason = "tenu pour son Drop")] LoggedPlayer),
-    Remote(#[expect(dead_code, reason = "tenu pour son Drop")] Seated),
-}
-
-struct LoggedPlayer {
-    process: Option<Reaper>,
-    written: Receiver<()>,
-}
-
-impl Drop for LoggedPlayer {
-    fn drop(&mut self) {
-        drop(self.process.take());
-        let _ = self.written.recv_timeout(LOG_FLUSH_TIMEOUT);
-    }
-}
-
-fn spawn_logged(mut command: Command, log: &Path) -> io::Result<LoggedPlayer> {
-    let mut file = File::create(log)?;
-    let mut child = command.stdout(Stdio::null()).stderr(Stdio::piped()).spawn()?;
-    let Some(mut stderr) = child.stderr.take() else {
-        unreachable!("tube demandé au lancement");
-    };
-    let (done, written) = mpsc::channel();
-    thread::spawn(move || {
-        let _done = done;
-        let mut kept = 0;
-        let mut buf = [0u8; 8192];
-        while let Ok(n @ 1..) = stderr.read(&mut buf) {
-            if kept < LOG_CAP {
-                let take = n.min(LOG_CAP - kept);
-                let _ = file.write_all(&buf[..take]);
-                kept += take;
-                if kept == LOG_CAP {
-                    let _ = file.write_all("\n[journal tronqué]\n".as_bytes());
-                }
-            }
-        }
-    });
-    Ok(LoggedPlayer {
-        process: Some(Reaper(child)),
-        written,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn a_game_waits_for_a_free_slot() {
-        let cfg: Config = "referee = [\"r\"]\ntime_ms = 100\nsession = \"s\"\n[[slot]]\n[[slot]]\n"
-            .parse()
-            .unwrap();
+    fn games_played_on_a_node_carry_its_id() {
+        use crate::bridge::Socket;
+        use crate::node::protocol::{FromNode, Outcome, PROTOCOL, ToNode};
+        use crate::placement::PairClass;
+        use axum::extract::ws::Message as Frame;
+
+        let dir = std::env::temp_dir().join(format!("isolation-arena-node-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("logs")).unwrap();
+        let cfg: Config = format!(
+            "referee = [\"r\"]\ntime_ms = 100\nsession = \"s\"\nout = {out:?}\ndb = {db:?}\n[nodes]\n",
+            out = dir.join("games.jsonl"),
+            db = dir.join("state").join("ladder.db"),
+        )
+        .parse()
+        .unwrap();
         let arena = Arena::new(cfg, Hub::new(|_, _, _| {}));
-        let first = arena.take_slot(false);
-        let second = arena.take_slot(false);
-        assert_eq!((first.index, second.index), (0, 1));
-        thread::scope(|scope| {
-            let (tx, rx) = mpsc::channel();
-            let arena = &arena;
-            scope.spawn(move || tx.send(arena.take_slot(false).index).unwrap());
-            assert!(rx.recv_timeout(Duration::from_millis(100)).is_err());
-            drop(second);
-            assert_eq!(rx.recv_timeout(Duration::from_secs(5)), Ok(1));
+        let (socket, to_hub, mut from_hub) = Socket::pair();
+        let hub = Arc::clone(arena.nodes().unwrap());
+        std::thread::spawn(move || crate::node::hub::serve(&socket, &hub, "node-a"));
+        let say = move |message: &FromNode| {
+            to_hub
+                .send(Frame::text(serde_json::to_string(message).unwrap()))
+                .unwrap();
+        };
+        say(&FromNode::Hello {
+            node: "node-a".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
+            protocol: PROTOCOL,
+            arch: "x86_64".into(),
+            slots: 1,
         });
-        drop(first);
-        assert_eq!(arena.take_slot(false).index, 0);
-    }
-
-    #[test]
-    fn a_multithread_game_waits_for_a_multithread_slot() {
-        let cfg: Config = "referee = [\"r\"]\ntime_ms = 100\nsession = \"s\"\n\
-                           [[slot]]\n[[slot]]\nmultithread = true\n[[slot]]\n"
-            .parse()
+        say(&FromNode::Ready { ready: true, why: None });
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let lease = loop {
+            if let Some(lease) = arena
+                .placement()
+                .try_lease(PairClass::Portable)
+                .filter(|l| !l.slot().local())
+            {
+                break lease;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "le nœud n'a jamais offert de slot"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        let bot = |id: &str| Team {
+            id: id.into(),
+            cmd: crate::command::CommandTemplate::new(["run.sh", "--bot", "aleatoire"]),
+            build: None,
+            anchor: false,
+            multithread: false,
+            portable: true,
+            remote: None,
+        };
+        let node = std::thread::spawn(move || {
+            loop {
+                let Some(Frame::Text(text)) = from_hub.blocking_recv() else {
+                    continue;
+                };
+                if let Ok(ToNode::Start(start)) = serde_json::from_str(text.as_str()) {
+                    let result = GameResult {
+                        v: isolation_core::record::RECORD_VERSION,
+                        time_ms: 100,
+                        opening: vec![],
+                        moves: vec![],
+                        winner: Color::Black,
+                        reason: Reason::Timeout,
+                        invalid: isolation_core::record::InvalidCounts::default(),
+                        duration_ms: 5,
+                        move_ms: vec![],
+                    };
+                    say(&FromNode::Result {
+                        game: start.game,
+                        outcome: Outcome::Ok { result },
+                        logs: ByColor::default(),
+                    });
+                    return;
+                }
+            }
+        });
+        let record = arena
+            .play(Some(&lease), &bot("aleatoire"), &bot("niveau-1"), &[], None, false)
             .unwrap();
-        let arena = Arena::new(cfg, Hub::new(|_, _, _| {}));
-        let multithread = arena.take_slot(true);
-        assert_eq!(multithread.index, 1);
-        assert_eq!(arena.take_slot(false).index, 0);
-        thread::scope(|scope| {
-            let (tx, rx) = mpsc::channel();
-            let arena = &arena;
-            scope.spawn(move || tx.send(arena.take_slot(true).index).unwrap());
-            assert!(rx.recv_timeout(Duration::from_millis(100)).is_err());
-            drop(multithread);
-            assert_eq!(rx.recv_timeout(Duration::from_secs(5)), Ok(1));
-        });
-    }
+        node.join().unwrap();
+        assert_eq!(record.node.as_deref(), Some("node-a"));
+        assert!(dir.join("state").join("nodes.json").exists(), "état des nœuds : privé");
+        assert!(
+            !dir.join("nodes.json").exists(),
+            "jamais dans data/, que la page publie"
+        );
 
-    fn result_of(stdout: &'static str, hub: Option<Arc<Hub>>) -> String {
-        read_result(stdout.as_bytes(), "g1".into(), hub)
-            .recv_timeout(Duration::from_secs(5))
-            .unwrap()
-    }
-
-    #[test]
-    fn events_go_live_and_the_result_is_the_first_other_json_line() {
-        let hub = Hub::new(|_, _, _| {});
-        hub.start(&hub::Start {
-            id: "g1",
-            red: "a",
-            black: "b",
-            since: "",
-            time_ms: 100,
-            opening: &[],
-            tournament: None,
-        });
-        let mut watcher = hub.subscribe().unwrap();
-        let stdout = "{\"event\":\"ready\"}\nbruit\n{\"event\":\"move\",\"move\":\"G1-G4-F9\",\"ms\":3}\n\
-                      {\"event\":\"futur\"}\n{\"v\":1}\n{\"v\":2}\n";
-        assert_eq!(result_of(stdout, Some(Arc::clone(&hub))), "{\"v\":1}");
-        let moved: serde_json::Value = serde_json::from_str(&watcher.events.try_recv().unwrap()).unwrap();
-        assert_eq!(moved["move"], "G1-G4-F9");
-        assert!(watcher.events.try_recv().is_err());
-    }
-
-    #[test]
-    fn a_referee_without_events_still_gives_its_result() {
-        assert_eq!(result_of("{\"v\":1}\n", None), "{\"v\":1}");
-    }
-
-    #[test]
-    fn without_a_result_the_last_line_is_kept_for_the_error() {
-        assert_eq!(result_of("{\"event\":\"ready\"}\nplantage\n", None), "plantage");
-        assert_eq!(result_of("", None), "");
+        let local = arena.placement().try_lease(PairClass::Heavy).unwrap();
+        assert!(local.slot().local());
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[cfg(unix)]
@@ -609,7 +432,7 @@ mod tests {
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         while !arena.draining() {
             assert!(std::time::Instant::now() < deadline, "SIGTERM lost");
-            thread::sleep(Duration::from_millis(10));
+            std::thread::sleep(Duration::from_millis(10));
         }
     }
 
@@ -634,6 +457,7 @@ mod tests {
             build: None,
             anchor: false,
             multithread: false,
+            portable: false,
             remote: None,
         };
         let (red, black) = (team("eq01"), team("eq02"));

@@ -143,6 +143,7 @@ Le ladder enregistre chaque partie terminée dans une base SQLite, `db` dans `la
 - `build` : les 16 premiers caractères hexadécimaux du sha256 du jar. Un nouveau hash correspond à une nouvelle soumission : le rating est conservé mais repasse en K provisoire.
 - `anchor` (absent par défaut) : joueur de référence dont le rating reste à 1500. Sans ancre, le classement est relatif entre les équipes.
 - `remote` (absent par défaut) : l'équipe a joué depuis sa propre machine. Le serveur n'a pas vu son code, et `build` est celui qu'elle déclare.
+- `node` (absent par défaut) : id du nœud de calcul qui a joué la partie (voir « Nœuds ») ; absent, le serveur principal. Une partie de nœud compte comme les autres.
 - `tournament` (absent par défaut) : `{"id": "tournoi-2026-11-08", "match": "W3", "game": 2}`, partie d'un tournoi hebdomadaire (voir [spec-tournoi-hebdo.md](spec-tournoi-hebdo.md)) : id du tournoi, match du tableau et numéro de la manche.
 Le schéma est dans [`crates/isolation-ladder/src/sql/schema.sql`](../crates/isolation-ladder/src/sql/schema.sql) ; sa version est dans `PRAGMA user_version` (1). Les tables :
 
@@ -207,7 +208,7 @@ Une ligne de partie (dans `recent` et `teams/`) reprend la partie sans les coups
 - `verified` (absent par défaut) : `{"all": [...], "session": [...]}`, les ratings du classement sans parties distantes, seulement s'ils diffèrent de `all` et `session`. Absent d'une partie vérifiée, ils leur sont égaux ; une partie distante n'en a jamais, et la page l'écarte quand la case est cochée.
 - `tournament` (absent par défaut) : comme dans la base. Une partie de tournoi ne compte que dans sa session : la portée `""` (toutes sessions) ne la voit pas, et son `all` vaut `[rating inchangé, 0]`.
 - Le replay lit la partie complète par `GET /api/games/{id}` (voir [api.md](api.md)).
-- Une ligne de `ratings` : `team`, `rating`, `peak` (rating maximal atteint), `games`, `wins`, `losses`, `build_games` et `build_wins` (parties et victoires du build courant, base du % V), `anchor`, `provisional`, `remote` (le build courant a joué au moins une partie à distance : badge "distant"), `build`, `last` (dernière partie), et `pace` (absent sans temps mesurés) : `mean` (moyenne arrondie), `p50`, `p95`, `p99`, `max` et `count` des temps par coup du build courant, `limit` le plus petit temps alloué. Avec `--archives` seulement, `archived_paces` : les mêmes mesures pour les autres builds de l'équipe dans ce scope, par hash (absent s'il n'y en a pas).
+- Une ligne de `ratings` : `team`, `rating`, `peak` (rating maximal atteint), `games`, `wins`, `losses`, `build_games` et `build_wins` (parties et victoires du build courant, base du % V), `anchor`, `provisional`, `remote` (le build courant a joué au moins une partie à distance : badge "distant"), `build`, `last` (dernière partie), et `pace` (absent sans temps mesurés) : `mean` (moyenne arrondie), `p50`, `p95`, `p99`, `max` et `count` des temps par coup du build courant, joués sur le serveur principal seulement (pas sur un nœud), `limit` le plus petit temps alloué. Avec `--archives` seulement, `archived_paces` : les mêmes mesures pour les autres builds de l'équipe dans ce scope, par hash (absent s'il n'y en a pas).
 - Au démarrage, le ladder réécrit `teams/`, `timeline.jsonl` et `summary.json`, ainsi que la table `ratings`, à partir de la base. Une équipe dont le nom n'est pas fait de lettres, chiffres, `-` et `_` (64 au plus) n'a pas de fichier d'équipe.
 
 ## Direct (`/api/live`)
@@ -396,7 +397,31 @@ Un token inconnu reçoit `401` avant l'upgrade. Le ladder ferme la session avec 
 
 Section `[remote]` de `ladder.toml` (demande `[submit]`, qui tient les tokens) : `listen`, l'adresse de la WebSocket, relayée par la page sur `/api/remote` ; `connect`, où relier le joueur distant : `unix:<rundir>/{game}/{side}/sock`, la socket de sa couleur chez l'arbitre, ou `tcp:127.0.0.1:{port}` pour un arbitre sans bac à sable. Le journal du joueur (`data/logs/`) reçoit le diagnostic du relais : délai avant `ready`, aller-retour médian.
 
+## Nœuds
+
+D'autres machines du LAN peuvent jouer des parties pour le ladder : ce sont des nœuds. Un nœud lance `isolation-ladder node node.toml`, se connecte au ladder (`[nodes].listen`, route `/api/node`) avec `Authorization: Bearer <token>` (`isolation-ladder add-node ID` crée le token ; seul son sha256 est gardé), puis annonce ses slots. Il ne reçoit jamais de commande : seulement un nom de bot de sa liste blanche ou le sha256 d'un jar, et il construit lui-même les commandes depuis sa configuration. Une partie jouée sur un nœud compte exactement comme les autres : même arbitre, même image, même bac à sable ; seul le champ `node` de la base la distingue.
+
+Seules les paires portables y vont : deux joueurs dont la force ne dépend pas de la machine. Un bot l'est par `portable = true` dans `[[team]]` ; une équipe l'est si son build actif a un p99 sous `portable_p99_ms` (100) sur au moins `portable_min_moves` (200) coups joués sur le serveur principal. Une paire portable prend un slot de nœud d'abord, sinon un slot ordinaire du serveur principal ; une paire non portable ne quitte jamais le serveur principal.
+
+Un message par trame WebSocket texte, en JSON, distingué par `type` ; une clé inconnue est refusée.
+
+| Sens | Message | Rôle |
+|------|---------|------|
+| nœud → ladder | `{"type":"hello","node":"node-a","version":"0.30.0","protocol":1,"arch":"aarch64","slots":2}` | Premier message. Une autre `version` ou un autre `protocol` que le ladder : refusé. |
+| nœud → ladder | `{"type":"ready","ready":true,"why":null}` | Prêt à jouer (sonde réussie, température correcte), ou plus. Seul un nœud prêt reçoit des parties. |
+| nœud → ladder | `{"type":"heartbeat","running":1,"temp_c":61.5}` | Toutes les 2 s. Sans nouvelles depuis 6 s, le nœud est perdu. |
+| nœud → ladder | `{"type":"event","game":"…","event":{"event":"move","move":"G1-E3-C12","ms":12}}` | Événement de l'arbitre, pour le direct. |
+| nœud → ladder | `{"type":"need","sha256":"…"}` | Le jar n'est pas dans le cache du nœud. |
+| nœud → ladder | `{"type":"result","game":"…","outcome":{"status":"ok","result":{…}},"logs":{"red":"…","black":"…"}}` | Fin de partie : le résultat (revalidé par le ladder) ou `{"status":"infra","side":"red","code":125}` ou `{"status":"error","message":"…"}`, qui annulent la partie ; et la sortie d'erreur de chaque joueur. |
+| ladder → nœud | `{"type":"start","game":"…","slot":0,"time_ms":1000,"opening":["…"],"timeout_ms":264000,"red":{"kind":"bot","strategy":"niveau-1","args":[]},"black":{"kind":"jar","sha256":"…"}}` | Joue cette partie sur ce slot du nœud. |
+| ladder → nœud | `{"type":"jar","sha256":"…","size":123}` puis une trame binaire | Le jar demandé ; le nœud vérifie sa taille et son sha256. |
+| ladder → nœud | `{"type":"abort","game":"…"}` | Arrête la partie (délai dépassé côté ladder). |
+| ladder → nœud | `{"type":"drain"}` | Le ladder s'arrête : finir les parties en cours, n'en accepter aucune. |
+
+Si la connexion tombe en pleine partie, le nœud arrête tout et nettoie ; le ladder annule la partie (`NodeLost`) et la rejoue une fois ailleurs avec la même ouverture. Elle n'est jamais comptée comme une défaite.
+
 ## Mise en route
+
 
 ```sh
 cargo build --release --bin isolation-referee --bin isolation-ladder --bin isolation-check
