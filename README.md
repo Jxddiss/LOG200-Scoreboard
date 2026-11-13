@@ -75,7 +75,7 @@ The relay starts the jar for every game and keeps reconnecting until stopped. Th
 | `isolation-check` | Replays and validates a JSONL file or an official save (`BOARDGAME 1`) |
 | `isolation-remote` | Relay for a team that plays from its own machine: starts the jar for each game and forwards its lines to the ladder (`/api/remote`, see `docs/formats.md`) |
 | `sandbox/` | gVisor sandboxes for the referee and each player (see `docs/formats.md`) |
-| `web/` | Static pages (vanilla JS): Elo ranking, recent games, replay; rank graph of the chosen teams (`graphe.html`); weekly tournament bracket (`tournoi.html`); games in progress, move by move (`direct.html`) |
+| `web/` | Static pages (Astro + React, built to `web/dist`): Elo ranking, recent games, replay; rank graph of the chosen teams (`graphe.html`); weekly tournament bracket (`tournoi.html`); games in progress, move by move (`direct.html`) |
 | `templates/ladder.yml` | GitHub Actions workflow for the team repositories: builds the jar and submits it on every push to `main` |
 
 The referee contract and the JSONL format are described in `docs/formats.md`. Any referee that follows it, such as the official C++ CLI, can replace ours.
@@ -91,12 +91,17 @@ sandbox/build.sh                     # sandbox images (needs Docker with gVisor)
 cp ladder.example.toml ladder.toml   # teams, time per move, session
 target/release/isolation-ladder ladder.toml
 target/release/isolation-ladder tournament start ladder.toml  # from another terminal: a tournament right away
-npx http-server . -p 8000            # then open http://localhost:8000/web/
+npx http-server . -p 8000            # serves data/ to the page
+(cd web && npm ci && SCOREBOARD_DEV_SERVER=http://localhost:8000 npm run dev)  # then open http://localhost:3000
 ```
 
 Optional for local-only builds: `export RUSTFLAGS="-C target-cpu=native"` before building, then `unset RUSTFLAGS` afterward. Do not distribute these CPU-specific binaries or images.
 
-Tests: `cargo test --workspace` and `node --test web/*.test.mjs`.
+Tests: `cargo test --workspace` and `npm test --prefix web`.
+
+`npm run dev:golden --prefix web` shows the page on the ladder's golden test data, with a fake live stream, a small tournament and a queue (`web/dev/golden-server.mjs`): no ladder or Docker needed.
+
+The page proxies `/api` and `/data` to `SCOREBOARD_DEV_SERVER` in dev (`npm run dev`, default `http://localhost:8080`, the compose stack). `npm run build` writes the static site to `web/dist`; the Pages workflow and `deploy/web.Dockerfile` build it the same way.
 
 ## Conformance against the official server
 
