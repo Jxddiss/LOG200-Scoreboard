@@ -109,6 +109,8 @@ Tests: `cargo test --workspace` and `npm test --prefix web`.
 
 For phone access on a trusted local network, run `npm run dev:golden --prefix web -- --host 0.0.0.0` on the host, then open `http://<computer-LAN-IP>:3000` on the same network. From a dev container, port 3000 must also be published or forwarded on the host's LAN interface. This is a fixture demo, not the public ladder: do not enter real team tokens or expose it to the Internet.
 
+To adjust the layout, the **Layout** button in Astro's dev toolbar outlines every element, one color per nesting depth (`web/dev/layout-debug.css`). Outlines do not shift the layout, and the choice persists across pages for the browser tab. It exists only in `astro dev`.
+
 The page proxies `/api` and `/data` to `SCOREBOARD_DEV_SERVER` in dev (`npm run dev`, default `http://localhost:8080`, the compose stack). `npm run build` writes the static site to `web/dist`; the Pages workflow and `deploy/web.Dockerfile` build it the same way.
 
 ## Conformance against the official server
