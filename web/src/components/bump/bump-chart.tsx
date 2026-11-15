@@ -22,6 +22,7 @@ type Props = {
   metric: TChartMetric;
   palette: Map<string, string>;
   versionOf: (team: string, build?: string) => string;
+  loading?: boolean;
 };
 
 type THover = { col: number | null; team: string | null };
@@ -29,7 +30,7 @@ type TPointerPosition = { clientX: number; clientY: number };
 
 const muted = 'var(--color-text-muted)';
 
-const BumpChart: FC<Props> = ({ columns, series, selected, metric, palette, versionOf }) => {
+const BumpChart: FC<Props> = ({ columns, series, selected, metric, palette, versionOf, loading = false }) => {
   const plot = useRef<HTMLDivElement>(null);
   const tip = useRef<HTMLDivElement>(null);
   const pointerFrame = useRef<number | null>(null);
@@ -174,7 +175,9 @@ const BumpChart: FC<Props> = ({ columns, series, selected, metric, palette, vers
   });
 
   let summary: string;
-  if (!geom) {
+  if (loading) {
+    summary = 'Chargement du graphe…';
+  } else if (!geom) {
     summary = !selected.length ? 'Aucune équipe choisie.' : 'Aucune partie de ces équipes dans cette fenêtre.';
   } else {
     const from = dayFormat.format(new Date(columns[0].ts));
@@ -335,6 +338,11 @@ const BumpChart: FC<Props> = ({ columns, series, selected, metric, palette, vers
             </>
           )}
         </svg>
+        {loading && (
+          <div className="bump-loading" aria-hidden="true">
+            <span className="spinner" />
+          </div>
+        )}
         <div
           id="bump-cursor"
           className="bump-cursor"
@@ -371,11 +379,10 @@ const BumpChart: FC<Props> = ({ columns, series, selected, metric, palette, vers
       </div>
       <figcaption id="bump-summary" className="bump-summary">
         {summary}
-        {game && (
-          <a className="graph-link bump-replay" href={gameUrl(game.id)}>
-            Rejouer la partie sélectionnée
-          </a>
-        )}
+        {/* Toujours rendu pour éviter de faire sauter l'interface. */}
+        <a className={cn('graph-link bump-replay', !game && 'idle')} href={game ? gameUrl(game.id) : undefined}>
+          Rejouer la partie sélectionnée
+        </a>
       </figcaption>
     </figure>
   );

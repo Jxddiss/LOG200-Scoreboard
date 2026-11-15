@@ -110,7 +110,7 @@ const TournoiPage = () => {
 
   return (
     <>
-      <Masthead current="tournoi">
+      <Masthead current="tournoi" status={<LiveStatus dot={error ? 'error' : index ? 'on' : ''} text={status} pulses={pulses} />}>
         <SessionSelect
           id="tournament"
           label="Tournoi"
@@ -122,7 +122,6 @@ const TournoiPage = () => {
             setShown(value);
           }}
         />
-        <LiveStatus dot={error ? 'error' : index ? 'on' : ''} text={status} pulses={pulses} />
       </Masthead>
 
       <main className="layout tournament-layout">

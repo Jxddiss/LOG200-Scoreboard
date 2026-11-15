@@ -1,6 +1,7 @@
 // Page du ladder : classement et dernières parties de summary.json, parties des équipes choisies
 // dans teams/, replay lu partie par partie sur /api/games/<id>.
 
+import { SectionToggle } from '@/components/controls/section-toggle';
 import { LiveStatus } from '@/components/controls/live-status';
 import { SessionSelect, sessionOptions } from '@/components/controls/session-select';
 import { VerifiedFilter } from '@/components/controls/verified-filter';
@@ -15,6 +16,7 @@ import { RankingSection } from '@/components/ranking/ranking-section';
 import { DEFAULT_STATS, ELO_STATS, PACE_STATS, RECORD_STATS, sortOf, statOf } from '@/components/ranking/ranking.data';
 import { ReplaySection } from '@/components/replay/replay-section';
 import { useReplay } from '@/components/replay/use-replay';
+import { SplitHandle } from '@/components/split-handle/split-handle';
 import { SubmitSection } from '@/components/submit/submit-section';
 import { useGetTeamRows } from '@/dao/hooks/use-games';
 import { useGetModel, useGetRunning, useGetSummary } from '@/dao/hooks/use-ladder';
@@ -62,6 +64,8 @@ const ClassementPage = () => {
   // Aucune équipe choisie : les dernières parties de toutes les équipes.
   const [chosen, setChosen] = useState(() => (initial.get('teams') ?? initial.get('team') ?? '').split(',').filter(Boolean));
   const [queueOpen, setQueueOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState<'ranking' | 'games' | null>(null);
+  const toggle = (section: 'ranking' | 'games') => setCollapsed((c) => (c === section ? null : section));
   const [liveWanted, setLiveWanted] = useState(false);
   const live = useLiveGames(liveWanted);
 
@@ -199,7 +203,7 @@ const ClassementPage = () => {
 
   return (
     <>
-      <Masthead current="classement">
+      <Masthead current="classement" status={<LiveStatus dot={error ? 'error' : summary ? 'on' : ''} text={status} pulses={pulses} />}>
         <VerifiedFilter
           hidden={!summary?.verified}
           checked={verifiedParam === '1'}
@@ -216,10 +220,9 @@ const ClassementPage = () => {
             actions.unpin();
           }}
         />
-        <LiveStatus dot={error ? 'error' : summary ? 'on' : ''} text={status} pulses={pulses} />
       </Masthead>
 
-      <main className="layout ranking-layout">
+      <main className="layout ranking-layout" data-collapsed={collapsed ?? undefined}>
         <RankingSection
           ratings={rankingRows}
           loaded={Boolean(scope)}
@@ -239,6 +242,8 @@ const ClassementPage = () => {
             setOrderParam(next.direction === 'ascending' ? 'asc' : null);
           }}
           onOpenQueue={() => setQueueOpen(true)}
+          collapsed={collapsed === 'ranking'}
+          onToggle={() => toggle('ranking')}
         >
           {summary?.archives && (
             <ArchiveFilter
@@ -250,13 +255,22 @@ const ClassementPage = () => {
           )}
         </RankingSection>
 
+        <SplitHandle
+          above="ranking-section"
+          below="games-section"
+          label="Partager la hauteur entre le classement et les parties récentes"
+          storageKey="ranking-height"
+        />
+
         <div className="replay-column">
           <SubmitSection />
           <ReplaySection replay={replay} actions={actions} versionOf={version} />
         </div>
 
-        <section className="section games" aria-labelledby="games-title">
-          <h2 id="games-title">Parties récentes</h2>
+        <section id="games-section" className="section games" aria-labelledby="games-title">
+          <SectionToggle id="games-title" collapsed={collapsed === 'games'} controls="games-section" onToggle={() => toggle('games')}>
+            Parties récentes
+          </SectionToggle>
           <TeamPicker
             className="games-picker"
             ratings={ratings}
