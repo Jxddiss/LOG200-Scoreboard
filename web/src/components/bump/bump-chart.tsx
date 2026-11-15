@@ -27,7 +27,7 @@ type Props = {
 type THover = { col: number | null; team: string | null };
 type TPointerPosition = { clientX: number; clientY: number };
 
-const muted = 'var(--muted)';
+const muted = 'var(--color-text-muted)';
 
 const BumpChart: FC<Props> = ({ columns, series, selected, metric, palette, versionOf }) => {
   const plot = useRef<HTMLDivElement>(null);

@@ -219,7 +219,7 @@ const ClassementPage = () => {
         <LiveStatus dot={error ? 'error' : summary ? 'on' : ''} text={status} pulses={pulses} />
       </Masthead>
 
-      <main className="layout">
+      <main className="layout ranking-layout">
         <RankingPanel
           ratings={rankingRows}
           loaded={Boolean(scope)}
@@ -255,7 +255,7 @@ const ClassementPage = () => {
           <ReplayPanel replay={replay} actions={actions} versionOf={version} />
         </div>
 
-        <section className="panel games" aria-labelledby="games-title">
+        <section className="section games" aria-labelledby="games-title">
           <h2 id="games-title">Parties récentes</h2>
           <TeamPicker
             className="games-picker"

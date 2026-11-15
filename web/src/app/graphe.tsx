@@ -123,7 +123,7 @@ const GraphePage = () => {
               onChange={choose}
               placeholder="Ajouter une équipe"
               chipsLabel="Équipes suivies"
-              color={(team) => palette.get(team) ?? 'var(--muted)'}
+              color={(team) => palette.get(team) ?? 'var(--color-text-muted)'}
               idle={(team) => !series.get(team)?.length}
             />
             <button id="picker-top" className="picker-top" type="button" onClick={() => choose(null)}>

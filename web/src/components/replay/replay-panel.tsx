@@ -5,7 +5,7 @@ import { squareName } from '@/lib/replay';
 import { cn } from '@/lib/utils';
 import type { TColor, TGame } from '@/types/games.types';
 import type { TLiveGame } from '@/types/live.types';
-import { useEffect, useState, type FC } from 'react';
+import { useEffect, useState, type CSSProperties, type FC } from 'react';
 import { ENDINGS } from './replay.data';
 import type { TReplay, TReplayActions } from './use-replay';
 
@@ -124,16 +124,17 @@ const ReplayPanel: FC<Props> = ({ replay, actions, versionOf }) => {
           <button id="last" className="icon" type="button" aria-label="Fin de la partie" onClick={() => actions.browse(total)}>
             <LastIcon />
           </button>
-          <input
-            id="step"
-            type="range"
-            min="0"
-            max={String(Math.max(0, total))}
-            value={String(index)}
-            aria-label="Coup affiché"
-            onChange={(e) => actions.browse(+e.target.value)}
-          />
         </div>
+        <input
+          id="step"
+          type="range"
+          min="0"
+          max={String(Math.max(0, total))}
+          value={String(index)}
+          style={{ '--progress': `${total > 0 ? (index / total) * 100 : 0}%` } as CSSProperties}
+          aria-label="Coup affiché"
+          onChange={(e) => actions.browse(+e.target.value)}
+        />
       </div>
     </section>
   );

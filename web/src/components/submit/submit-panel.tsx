@@ -34,7 +34,7 @@ const SubmitPanel: FC = () => {
     <details id="submit-panel" className="panel submit" hidden={!available}>
       <summary id="submit-title">Soumettre un JAR</summary>
       <form id="submit-form" className="submit-form" onSubmit={handleSubmit}>
-        <label className="field">
+        <label className="field" htmlFor="submit-token">
           <span>Token de l'équipe</span>
           <input
             id="submit-token"
@@ -46,7 +46,7 @@ const SubmitPanel: FC = () => {
             onChange={(e) => setToken(e.target.value)}
           />
         </label>
-        <label className="field file">
+        <label className="field file" htmlFor="submit-file">
           <span>Jar</span>
           <input id="submit-file" type="file" accept=".jar" required onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
           <span className="file-button" aria-hidden="true">

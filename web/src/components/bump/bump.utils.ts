@@ -6,7 +6,7 @@ const MARGIN = { top: 18, right: 96, bottom: 28, left: 36 };
 // Pixels par partie en dessous desquels le rang est lissé, et largeur d'un paquet lissé.
 const EXACT_PX = 4;
 const BUCKET_PX = 12;
-// Couleurs --series-1 à --series-10, répétées au-delà.
+// Couleurs --color-series-1 à --color-series-10, répétées au-delà.
 const COLORS = 10;
 
 type TVertex = [number, number];
@@ -24,7 +24,7 @@ export function colorOf(team: string, selected: string[]) {
     while (used.has(slot) && slot < COLORS) slot++;
     colors.set(team, slot < COLORS ? slot : colors.size % COLORS);
   }
-  return `var(--series-${colors.get(team)! + 1})`;
+  return `var(--color-series-${colors.get(team)! + 1})`;
 }
 
 // Sommets [colonne, rang ou Elo] de la ligne. Valeur exacte : palier, puis diagonale sur une partie.
