@@ -25,7 +25,7 @@ const save = (key: string, height: number | null) => {
     if (height === null) localStorage.removeItem(key);
     else localStorage.setItem(key, String(Math.round(height)));
   } catch {
-    // Stockage bloqué : la hauteur vaut pour la visite seulement.
+    console.warn(`[local-storage] Impossible de sauvegarder la hauteur du split : ${key}`);
   }
 };
 
