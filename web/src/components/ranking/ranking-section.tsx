@@ -56,7 +56,7 @@ const PING_MS = 1200;
 const opponentOf = (e: SyntheticEvent) =>
   (e.target as Element).closest?.<HTMLElement>('[data-opponent]')?.dataset.opponent ?? null;
 
-const RankingPanel: FC<Props> = ({
+const RankingSection: FC<Props> = ({
   ratings,
   loaded,
   running,
@@ -234,4 +234,4 @@ const RankingPanel: FC<Props> = ({
   );
 };
 
-export { RankingPanel };
+export { RankingSection };

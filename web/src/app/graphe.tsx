@@ -96,7 +96,7 @@ const GraphePage = () => {
       </Masthead>
 
       <main className="layout graph-layout">
-        <section className="panel bump" aria-labelledby="bump-title">
+        <section className="section bump" aria-labelledby="bump-title">
           <div className="bump-head">
             <h2 id="bump-title">{metric === 'rank' ? 'Rangs' : 'Elo'} au fil des parties</h2>
             <WindowRadio

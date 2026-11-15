@@ -355,8 +355,6 @@ select:hover {
     padding: var(--gutter) max(var(--gutter), env(safe-area-inset-right)) max(var(--gutter), calc(var(--status-clearance) - var(--section-padding))) max(var(--gutter), env(safe-area-inset-left));
 }
 
-/* Zones de contenu sans cadre ; .panel et .section sont synonymes. */
-.panel,
 .section {
     min-width: 0;
     padding: var(--section-padding);
@@ -369,7 +367,6 @@ select:hover {
     padding-top: 0;
 }
 
-.panel>h2,
 .section>h2 {
     margin-bottom: var(--space-3);
 }
@@ -387,7 +384,7 @@ select:hover {
     flex: 1;
 }
 
-.replay-column>.panel {
+.replay-column>.section {
     padding: 0;
 }
 
@@ -3055,7 +3052,7 @@ details[open]>summary~* {
 /* Place pour l'état flottant. */
 .bracket,
 .live-grid,
-.panel.swagger {
+.section.swagger {
     padding-bottom: calc(var(--status-overlap) + var(--space-2));
 }
 
@@ -3064,23 +3061,23 @@ details[open]>summary~* {
     padding-bottom: calc(var(--section-padding) + var(--status-overlap));
 }
 
-.panel.swagger {
+.section.swagger {
     min-height: 0;
     overflow: auto;
 }
 
 /* Le thème sombre de Swagger UI a son propre fond, un peu différent de celui du site. */
-.panel.swagger .swagger-ui {
+.section.swagger .swagger-ui {
     background: transparent;
 }
 
 /* Annule les marges propres à Swagger UI. */
-.panel.swagger .swagger-ui .wrapper {
+.section.swagger .swagger-ui .wrapper {
     max-width: none;
     padding: 0;
 }
 
-.panel.swagger .swagger-ui .information-container .info {
+.section.swagger .swagger-ui .information-container .info {
     margin: 0 0 var(--space-6);
 }
 

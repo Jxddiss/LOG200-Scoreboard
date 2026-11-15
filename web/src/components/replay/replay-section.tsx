@@ -17,7 +17,7 @@ type Props = {
   versionOf: (team: string, build?: string) => string;
 };
 
-const ReplayPanel: FC<Props> = ({ replay, actions, versionOf }) => {
+const ReplaySection: FC<Props> = ({ replay, actions, versionOf }) => {
   const [shareLabel, setShareLabel] = useState(SHARE);
   const { steps, moveMs, index, game, live, message } = replay;
   const step = steps[index];
@@ -180,4 +180,4 @@ const LiveInfo: FC<{ game: TLiveGame }> = ({ game: g }) => {
   );
 };
 
-export { ReplayPanel };
+export { ReplaySection };

@@ -48,7 +48,7 @@ const DirectPage = () => {
       </Masthead>
 
       <main className="layout tournament-layout">
-        <section className="panel tournament" aria-labelledby="direct-title">
+        <section className="section tournament" aria-labelledby="direct-title">
           <h2 id="direct-title">Parties en cours</h2>
           <p id="direct-empty" className="empty" hidden={shown.length > 0 || !on}>
             Aucune partie en cours. Les parties du ladder et du tournoi apparaissent ici dès leur premier coup.
