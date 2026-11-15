@@ -2204,6 +2204,42 @@ input[type='range']:active::-moz-range-thumb {
     overflow-wrap: anywhere;
 }
 
+.tip-dismiss {
+    display: none;
+}
+
+@media (hover: none) {
+    .bump-tip {
+        padding-right: calc(var(--control-sm) + var(--space-2));
+    }
+
+    .tip-dismiss {
+        position: absolute;
+        top: var(--space-1);
+        right: var(--space-1);
+        display: grid;
+        place-items: center;
+        width: var(--control-sm);
+        height: var(--control-sm);
+        padding: var(--space-1);
+        background: none;
+        border: 0;
+        border-radius: var(--radius-sm);
+        color: var(--color-text-muted);
+        pointer-events: auto;
+        cursor: pointer;
+    }
+
+    .tip-dismiss svg {
+        width: 100%;
+        height: 100%;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+    }
+}
+
 .tip-when {
     color: var(--color-text-muted);
     font-size: var(--font-size-xs);
