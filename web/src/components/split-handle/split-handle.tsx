@@ -16,6 +16,7 @@ const load = (key: string) => {
   try {
     return Number(localStorage.getItem(key)) || null;
   } catch {
+    console.warn(`[local-storage] Impossible de charger la hauteur du split : ${key}`);
     return null;
   }
 };
