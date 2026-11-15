@@ -17,9 +17,9 @@ P(rouge gagne) = σ(s_rouge − s_noir + c), un modèle Bradley–Terry ajusté 
 
 - À chaque ajustement, les 20 % de parties les plus récentes (1000 au plus) sont notées (Brier) une à une par un modèle ajusté sur ce qui les précède, réajusté toutes les 25 parties, contre l'`expected()` de l'Elo d'avant partie. Un modèle figé serait injustement pénalisé : l'Elo, lui, se met à jour partie par partie. S'il ne le bat pas, ou si la validation a moins de 30 parties, `usable` vaut faux et la page n'affiche aucune probabilité. Les métriques sont toujours publiées, avec l'historique des 20 derniers ajustements. Le Brier des parties de tournoi est donné à part.
 - Une équipe avec moins de 10 parties : la page n'affiche rien.
-- Badge de duel (`web/app.js`) : probabilité de l'équipe de la ligne avec sa couleur réelle.
-- Tableau de tournoi (`web/tournoi.js`) : probabilité par manche des matchs à venir, moyenne des deux couleurs, dans la case du score tant que le match n'a pas commencé.
-- Le web calcule σ lui-même (`web/predict.js`) à partir de `model.json`.
+- Badge de duel (`web/src/components/ranking/duel-badge.tsx`) : probabilité de l'équipe de la ligne avec sa couleur réelle.
+- Tableau de tournoi (`web/src/components/tournament/match-card.tsx`) : probabilité par manche des matchs à venir, moyenne des deux couleurs, dans la case du score tant que le match n'a pas commencé.
+- Le web calcule σ lui-même (`web/src/lib/predict.ts`) à partir de `model.json`.
 
 ## Limites assumées
 
@@ -58,7 +58,7 @@ Standings (expected, historique)   GameRecord
                          ▼
         3. Standings : alimente le modèle, publie au démarrage puis toutes les 25 parties
                          ▼
-        4. web/predict.js : σ(Δs ± c), seuil de parties, `usable`
+        4. web/src/lib/predict.ts : σ(Δs ± c), seuil de parties, `usable`
                   ┌──────┴──────┐
                   ▼             ▼
         5a. badge de duel   5b. tableau de tournoi

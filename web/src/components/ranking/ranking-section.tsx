@@ -56,7 +56,7 @@ const PING_MS = 1200;
 const opponentOf = (e: SyntheticEvent) =>
   (e.target as Element).closest?.<HTMLElement>('[data-opponent]')?.dataset.opponent ?? null;
 
-const RankingPanel: FC<Props> = ({
+const RankingSection: FC<Props> = ({
   ratings,
   loaded,
   running,
@@ -111,7 +111,7 @@ const RankingPanel: FC<Props> = ({
   const sortProps = { sort, onSort };
 
   return (
-    <section className="panel ranking" aria-labelledby="ranking-title">
+    <section className="section ranking" aria-labelledby="ranking-title">
       <div className="ranking-heading">
         <h2 id="ranking-title">Classement</h2>
         <button id="queue-open" className="queue-open" type="button" aria-haspopup="dialog" onClick={onOpenQueue}>
@@ -234,4 +234,4 @@ const RankingPanel: FC<Props> = ({
   );
 };
 
-export { RankingPanel };
+export { RankingSection };

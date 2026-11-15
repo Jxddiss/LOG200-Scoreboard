@@ -104,7 +104,7 @@ Dans `games.jsonl`, sous leur propre session, avec un champ facultatif `tourname
 
 ## Page Tournoi
 
-- `web/tournoi.html`, 3e onglet après Classement et Graphe.
+- `tournoi.html` (`web/src/pages/tournoi.astro`, `web/src/app/tournoi.tsx`), 3e onglet après Classement et Graphe.
 - Visuel inspiré de Challonge, aux couleurs du ladder :
   - une bande par tableau (principal, repêchage), puis la grande finale ;
   - une carte à deux lignes par match : tête de série, équipe, version vN au survol, score dans une case à droite, rouge pour le gagnant ;
@@ -194,4 +194,4 @@ flowchart LR
 6. **Exécution dans la boucle** : priorité sur les slots, `busy` partagé, relances, suspension, reprise depuis l'historique.
 7. **Publication** : `tournaments/<id>.json`, `index.json`, champ de `live.json`, suppression des jars figés.
 8. **Commandes admin** : sous-commande `tournament start|resume`, fichiers de requête dans `jars/admin/`.
-9. **Page Tournoi et docs** : `web/tournoi.html` et son script, onglet dans les trois pages, filtre de la courbe globale, `docs/formats.md`, README.
+9. **Page Tournoi et docs** : `tournoi.html` (`web/src/pages/tournoi.astro`, `web/src/app/tournoi.tsx`), onglet dans les trois pages, filtre de la courbe globale, `docs/formats.md`, README.

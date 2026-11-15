@@ -8,7 +8,7 @@ const INTRO =
   "Deux parties de test contre un bot aléatoire, jusqu'à deux minutes. Si elles se terminent sans dépassement de temps ni plantage, ce jar remplace celui de l'équipe.";
 
 // Le formulaire n'apparaît que si le service de soumission répond (absent en hébergement statique).
-const SubmitPanel: FC = () => {
+const SubmitSection: FC = () => {
   const { data: available } = useGetHealth();
   const [token, setToken] = useState('');
   const [file, setFile] = useState<File | null>(null);
@@ -31,10 +31,10 @@ const SubmitPanel: FC = () => {
   };
 
   return (
-    <details id="submit-panel" className="panel submit" hidden={!available}>
+    <details id="submit-section" className="section submit" hidden={!available}>
       <summary id="submit-title">Soumettre un JAR</summary>
       <form id="submit-form" className="submit-form" onSubmit={handleSubmit}>
-        <label className="field">
+        <label className="field" htmlFor="submit-token">
           <span>Token de l'équipe</span>
           <input
             id="submit-token"
@@ -46,7 +46,7 @@ const SubmitPanel: FC = () => {
             onChange={(e) => setToken(e.target.value)}
           />
         </label>
-        <label className="field file">
+        <label className="field file" htmlFor="submit-file">
           <span>Jar</span>
           <input id="submit-file" type="file" accept=".jar" required onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
           <span className="file-button" aria-hidden="true">
@@ -64,4 +64,4 @@ const SubmitPanel: FC = () => {
   );
 };
 
-export { SubmitPanel };
+export { SubmitSection };

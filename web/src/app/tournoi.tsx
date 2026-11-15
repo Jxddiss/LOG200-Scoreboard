@@ -126,7 +126,7 @@ const TournoiPage = () => {
       </Masthead>
 
       <main className="layout tournament-layout">
-        <section className="panel tournament" aria-labelledby="tournament-title">
+        <section className="section tournament" aria-labelledby="tournament-title">
           <div className="tournament-head">
             <div>
               <h2 id="tournament-title">{title}</h2>

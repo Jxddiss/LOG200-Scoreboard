@@ -96,7 +96,7 @@ const GraphePage = () => {
       </Masthead>
 
       <main className="layout graph-layout">
-        <section className="panel bump" aria-labelledby="bump-title">
+        <section className="section bump" aria-labelledby="bump-title">
           <div className="bump-head">
             <h2 id="bump-title">{metric === 'rank' ? 'Rangs' : 'Elo'} au fil des parties</h2>
             <WindowRadio
@@ -123,7 +123,7 @@ const GraphePage = () => {
               onChange={choose}
               placeholder="Ajouter une équipe"
               chipsLabel="Équipes suivies"
-              color={(team) => palette.get(team) ?? 'var(--muted)'}
+              color={(team) => palette.get(team) ?? 'var(--color-text-muted)'}
               idle={(team) => !series.get(team)?.length}
             />
             <button id="picker-top" className="picker-top" type="button" onClick={() => choose(null)}>

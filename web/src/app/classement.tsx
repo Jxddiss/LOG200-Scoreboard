@@ -11,11 +11,11 @@ import { Masthead } from '@/components/masthead/masthead';
 import { TeamPicker } from '@/components/picker/team-picker';
 import { QueueDialog } from '@/components/queue/queue-dialog';
 import { ArchiveFilter } from '@/components/ranking/archive-filter';
-import { RankingPanel } from '@/components/ranking/ranking-panel';
+import { RankingSection } from '@/components/ranking/ranking-section';
 import { DEFAULT_STATS, ELO_STATS, PACE_STATS, RECORD_STATS, sortOf, statOf } from '@/components/ranking/ranking.data';
-import { ReplayPanel } from '@/components/replay/replay-panel';
+import { ReplaySection } from '@/components/replay/replay-section';
 import { useReplay } from '@/components/replay/use-replay';
-import { SubmitPanel } from '@/components/submit/submit-panel';
+import { SubmitSection } from '@/components/submit/submit-section';
 import { useGetTeamRows } from '@/dao/hooks/use-games';
 import { useGetModel, useGetRunning, useGetSummary } from '@/dao/hooks/use-ladder';
 import { teamUrl } from '@/dao/scoreboard.repository';
@@ -219,8 +219,8 @@ const ClassementPage = () => {
         <LiveStatus dot={error ? 'error' : summary ? 'on' : ''} text={status} pulses={pulses} />
       </Masthead>
 
-      <main className="layout">
-        <RankingPanel
+      <main className="layout ranking-layout">
+        <RankingSection
           ratings={rankingRows}
           loaded={Boolean(scope)}
           running={running}
@@ -248,14 +248,14 @@ const ClassementPage = () => {
               error={archiveError?.message}
             />
           )}
-        </RankingPanel>
+        </RankingSection>
 
         <div className="replay-column">
-          <SubmitPanel />
-          <ReplayPanel replay={replay} actions={actions} versionOf={version} />
+          <SubmitSection />
+          <ReplaySection replay={replay} actions={actions} versionOf={version} />
         </div>
 
-        <section className="panel games" aria-labelledby="games-title">
+        <section className="section games" aria-labelledby="games-title">
           <h2 id="games-title">Parties récentes</h2>
           <TeamPicker
             className="games-picker"

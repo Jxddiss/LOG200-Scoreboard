@@ -17,7 +17,7 @@ export const ChevronDownIcon = icon('M6 9l6 6 6-6');
 export const FirstIcon = icon('M6 5v14M19 5l-9 7 9 7z');
 export const PrevIcon = icon('M16 5l-9 7 9 7z');
 export const PlayIcon = icon('M8 5l11 7-11 7z');
-export const PauseIcon = icon('M8 5v14M16 5v14');
+export const PauseIcon = icon('M7.5 6h2v12h-2zM14.5 6h2v12h-2z');
 export const NextIcon = icon('M8 5l9 7-9 7z');
 export const LastIcon = icon('M18 5v14M5 5l9 7-9 7z');
 
