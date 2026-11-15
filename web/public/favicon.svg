@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Isola</title>
+  <desc id="desc">A tiled board with two opposing pieces and one removed tile.</desc>
+  <rect width="128" height="128" rx="25" fill="#111C2D"/>
+  <g fill="#E8E5DC">
+    <rect x="16" y="16" width="28" height="28" rx="5"/>
+    <rect x="50" y="16" width="28" height="28" rx="5"/>
+    <rect x="84" y="16" width="28" height="28" rx="5"/>
+    <rect x="16" y="50" width="28" height="28" rx="5"/>
+    <rect x="84" y="50" width="28" height="28" rx="5"/>
+    <rect x="16" y="84" width="28" height="28" rx="5"/>
+    <rect x="50" y="84" width="28" height="28" rx="5"/>
+    <rect x="84" y="84" width="28" height="28" rx="5"/>
+  </g>
+  <rect x="50" y="50" width="28" height="28" rx="5" fill="#26364B"/>
+  <path d="M58 58 70 70 M70 58 58 70" fill="none" stroke="#8190A3" stroke-width="3.2" stroke-linecap="round"/>
+  <circle cx="30" cy="64" r="10.5" fill="#FF786D"/>
+  <circle cx="30" cy="60.5" r="3" fill="#FFE1D9" opacity=".82"/>
+  <circle cx="98" cy="64" r="10.5" fill="#55D6C2"/>
+  <circle cx="98" cy="60.5" r="3" fill="#D9FFF8" opacity=".88"/>
+</svg>
