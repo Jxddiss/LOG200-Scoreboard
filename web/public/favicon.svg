@@ -1,21 +1,41 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Isola">
   <title id="title">Isola</title>
-  <desc id="desc">A tiled board with two opposing pieces and one removed tile.</desc>
-  <rect width="128" height="128" rx="25" fill="#111C2D"/>
-  <g fill="#E8E5DC">
-    <rect x="16" y="16" width="28" height="28" rx="5"/>
-    <rect x="50" y="16" width="28" height="28" rx="5"/>
-    <rect x="84" y="16" width="28" height="28" rx="5"/>
-    <rect x="16" y="50" width="28" height="28" rx="5"/>
-    <rect x="84" y="50" width="28" height="28" rx="5"/>
-    <rect x="16" y="84" width="28" height="28" rx="5"/>
-    <rect x="50" y="84" width="28" height="28" rx="5"/>
-    <rect x="84" y="84" width="28" height="28" rx="5"/>
+  <desc id="desc">A tiled board with two opposing pieces.</desc>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#292929"/>
+      <stop offset="1" stop-color="#171717"/>
+    </linearGradient>
+    <radialGradient id="red" cx="35%" cy="28%" r="75%">
+      <stop offset="0" stop-color="#ff7777"/>
+      <stop offset="0.62" stop-color="#d83f48"/>
+      <stop offset="1" stop-color="#92232d"/>
+    </radialGradient>
+    <radialGradient id="dark" cx="35%" cy="28%" r="75%">
+      <stop offset="0" stop-color="#777777"/>
+      <stop offset="0.55" stop-color="#353535"/>
+      <stop offset="1" stop-color="#111111"/>
+    </radialGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="1.8"/>
+      <feOffset dy="1.5"/>
+      <feComponentTransfer><feFuncA type="linear" slope=".55"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="64" height="64" rx="9" fill="#101010"/>
+  <g stroke="#090909" stroke-width="1.5">
+    <rect x="3" y="3" width="27" height="27" rx="2.5" fill="url(#tile)"/>
+    <rect x="34" y="3" width="27" height="27" rx="2.5" fill="url(#tile)"/>
+    <rect x="3" y="34" width="27" height="27" rx="2.5" fill="url(#tile)"/>
+    <rect x="34" y="34" width="27" height="27" rx="2.5" fill="url(#tile)"/>
   </g>
-  <rect x="50" y="50" width="28" height="28" rx="5" fill="#26364B"/>
-  <path d="M58 58 70 70 M70 58 58 70" fill="none" stroke="#8190A3" stroke-width="3.2" stroke-linecap="round"/>
-  <circle cx="30" cy="64" r="10.5" fill="#FF786D"/>
-  <circle cx="30" cy="60.5" r="3" fill="#FFE1D9" opacity=".82"/>
-  <circle cx="98" cy="64" r="10.5" fill="#55D6C2"/>
-  <circle cx="98" cy="60.5" r="3" fill="#D9FFF8" opacity=".88"/>
+
+  <g filter="url(#shadow)">
+    <circle cx="16.5" cy="16.5" r="9.2" fill="url(#red)" stroke="#f08080" stroke-width="1.2"/>
+    <circle cx="16.5" cy="14.2" r="4.4" fill="#ffffff" opacity=".12"/>
+    <circle cx="47.5" cy="47.5" r="9.2" fill="url(#dark)" stroke="#858585" stroke-width="1.2"/>
+    <circle cx="47.5" cy="45.2" r="4.4" fill="#ffffff" opacity=".12"/>
+  </g>
 </svg>
