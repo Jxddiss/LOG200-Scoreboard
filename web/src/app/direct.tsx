@@ -40,12 +40,15 @@ const DirectPage = () => {
 
   return (
     <>
-      <Masthead current="direct">
-        <LiveStatus
-          dot={on ? 'on' : live.state === 'connecting' ? '' : 'error'}
-          text={live.state === 'on' ? `${shown.length} parties en cours` : STATES[live.state]}
-        />
-      </Masthead>
+      <Masthead
+        current="direct"
+        status={
+          <LiveStatus
+            dot={on ? 'on' : live.state === 'connecting' ? '' : 'error'}
+            text={live.state === 'on' ? `${shown.length} parties en cours` : STATES[live.state]}
+          />
+        }
+      />
 
       <main className="layout tournament-layout">
         <section className="section tournament" aria-labelledby="direct-title">

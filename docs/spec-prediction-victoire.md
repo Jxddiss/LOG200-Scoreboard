@@ -1,6 +1,6 @@
 # Probabilité de victoire du scoreboard
 
-Le scoreboard affiche, pour un duel, la probabilité que chaque équipe gagne : sur le badge des parties en cours et sur les matchs à venir du tableau de tournoi. Elle n'influence ni l'appariement du ladder ni le tirage du tournoi. Format de `model.json` : [formats.md](formats.md).
+Le scoreboard affiche, pour un duel, la probabilité que chaque équipe gagne : dans l'infobulle de la pastille des parties en cours et sur les matchs à venir du tableau de tournoi. Elle n'influence ni l'appariement du ladder ni le tirage du tournoi. Format de `model.json` : [formats.md](formats.md).
 
 ## Modèle
 
@@ -17,7 +17,7 @@ P(rouge gagne) = σ(s_rouge − s_noir + c), un modèle Bradley–Terry ajusté 
 
 - À chaque ajustement, les 20 % de parties les plus récentes (1000 au plus) sont notées (Brier) une à une par un modèle ajusté sur ce qui les précède, réajusté toutes les 25 parties, contre l'`expected()` de l'Elo d'avant partie. Un modèle figé serait injustement pénalisé : l'Elo, lui, se met à jour partie par partie. S'il ne le bat pas, ou si la validation a moins de 30 parties, `usable` vaut faux et la page n'affiche aucune probabilité. Les métriques sont toujours publiées, avec l'historique des 20 derniers ajustements. Le Brier des parties de tournoi est donné à part.
 - Une équipe avec moins de 10 parties : la page n'affiche rien.
-- Badge de duel (`web/src/components/ranking/duel-badge.tsx`) : probabilité de l'équipe de la ligne avec sa couleur réelle.
+- Badge de duel (`web/src/components/ranking/duel-badge.tsx`) : probabilité de l'équipe de la ligne avec sa couleur réelle, dans l'infobulle du badge.
 - Tableau de tournoi (`web/src/components/tournament/match-card.tsx`) : probabilité par manche des matchs à venir, moyenne des deux couleurs, dans la case du score tant que le match n'a pas commencé.
 - Le web calcule σ lui-même (`web/src/lib/predict.ts`) à partir de `model.json`.
 

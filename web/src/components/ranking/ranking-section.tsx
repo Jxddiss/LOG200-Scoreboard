@@ -1,11 +1,12 @@
 import { Badge } from '@/components/badge/badge';
+import { SectionToggle } from '@/components/controls/section-toggle';
 import { useScrollEdges } from '@/hooks/use-scroll-edges';
 import { winProbability } from '@/lib/predict';
 import { cn } from '@/lib/utils';
 import type { TRunningGame } from '@/types/games.types';
 import type { TRankingRow } from '@/lib/archives';
 import type { TModel, TPaceStat } from '@/types/summary.types';
-import { useRef, useState, type FC, type ReactNode, type SyntheticEvent } from 'react';
+import { useRef, useState, type FC, type PointerEvent, type ReactNode, type SyntheticEvent } from 'react';
 import {
   ELO_STATS, PACE_STATS, RECORD_STATS, SORT_COLUMNS, rankingView, statOf,
   type TEloStat, type TRankingSort, type TRecordStat, type TSortColumn,
@@ -17,6 +18,8 @@ type Props = {
   ratings: TRankingRow[];
   // Filtre des archives, sous le titre.
   children?: ReactNode;
+  collapsed: boolean;
+  onToggle: () => void;
   loaded: boolean;
   running: TRunningGame[];
   model: TModel | null | undefined;
@@ -51,8 +54,6 @@ const SortHeader: FC<SortHeaderProps> = ({ column, label, title, sort, onSort, c
   </th>
 );
 
-const PING_MS = 1200;
-
 const opponentOf = (e: SyntheticEvent) =>
   (e.target as Element).closest?.<HTMLElement>('[data-opponent]')?.dataset.opponent ?? null;
 
@@ -73,32 +74,26 @@ const RankingSection: FC<Props> = ({
   onSortChange,
   onOpenQueue,
   children,
+  collapsed,
+  onToggle,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const scroll = useScrollEdges(scrollRef);
-  const rows = useRef(new Map<string, HTMLTableRowElement>());
   const [opponent, setOpponent] = useState<string | null>(null);
-  const [ping, setPing] = useState<string | null>(null);
 
   const duels = new Map<string, TDuel>();
   for (const g of running) {
     if (!duels.has(g.red))
-      duels.set(g.red, { id: g.id, opponent: g.black, color: 'red', chance: winProbability(model, g.red, g.black, 'red') });
+      duels.set(g.red, { id: g.id, opponent: g.black, color: 'red', chance: winProbability(model, g.red, g.black, 'red'), tournament: g.tournament });
     if (!duels.has(g.black))
-      duels.set(g.black, { id: g.id, opponent: g.red, color: 'black', chance: winProbability(model, g.black, g.red, 'black') });
+      duels.set(g.black, { id: g.id, opponent: g.red, color: 'black', chance: winProbability(model, g.black, g.red, 'black'), tournament: g.tournament });
   }
   const { rows: sorted, ranks } = rankingView(ratings, sort, { elo: eloStat, record: recordStat, pace: paceStat });
 
   const showOpponent = (e: SyntheticEvent) => setOpponent(opponentOf(e));
   const clearOpponent = () => setOpponent(null);
-  const goToOpponent = (e: SyntheticEvent) => {
-    const team = opponentOf(e);
-    const row = team && rows.current.get(team);
-    if (!row) return;
-    row.scrollIntoView({ block: 'nearest' });
-    setPing(team);
-    setTimeout(() => setPing((current) => (current === team ? null : current)), PING_MS);
-  };
+  // Au tactile, c'est le focus de la pastille qui surligne.
+  const mouseOnly = (handler: (e: PointerEvent) => void) => (e: PointerEvent) => e.pointerType === 'mouse' && handler(e);
 
   const [eloLabel, eloTitle] = ELO_STATS[eloStat];
   const [recordLabel, recordTitle] = RECORD_STATS[recordStat];
@@ -111,9 +106,11 @@ const RankingSection: FC<Props> = ({
   const sortProps = { sort, onSort };
 
   return (
-    <section className="section ranking" aria-labelledby="ranking-title">
+    <section id="ranking-section" className="section ranking" aria-labelledby="ranking-title">
       <div className="ranking-heading">
-        <h2 id="ranking-title">Classement</h2>
+        <SectionToggle id="ranking-title" collapsed={collapsed} controls="ranking-section" onToggle={onToggle}>
+          Classement
+        </SectionToggle>
         <button id="queue-open" className="queue-open" type="button" aria-haspopup="dialog" onClick={onOpenQueue}>
           File d’attente
         </button>
@@ -178,11 +175,10 @@ const RankingSection: FC<Props> = ({
             </tr>
           </thead>
           <tbody
-            onPointerOver={showOpponent}
+            onPointerOver={mouseOnly(showOpponent)}
             onFocus={showOpponent}
-            onPointerOut={clearOpponent}
+            onPointerOut={mouseOnly(clearOpponent)}
             onBlur={clearOpponent}
-            onClick={goToOpponent}
           >
             {sorted.map((r) => {
               const active = !r.archived;
@@ -190,19 +186,14 @@ const RankingSection: FC<Props> = ({
               return (
                 <RankingRow
                   key={active ? r.team : `${r.team}@${r.build}`}
-                  ref={active ? (node) => {
-                    if (node) rows.current.set(r.team, node);
-                    else rows.current.delete(r.team);
-                  } : undefined}
                   rank={active ? ranks.get(r.team) : undefined}
                   rating={r}
                   version={versionOf(r.team, r.build)}
                   duel={duel}
-                  opponentListed={Boolean(duel && ranks.has(duel.opponent))}
                   eloStat={eloStat}
                   recordStat={recordStat}
                   paceStat={paceStat}
-                  highlight={active ? (ping === r.team ? 'ping' : opponent === r.team ? 'opponent' : undefined) : undefined}
+                  highlight={active && opponent === r.team}
                 />
               );
             })}

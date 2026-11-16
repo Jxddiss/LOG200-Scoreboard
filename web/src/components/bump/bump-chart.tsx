@@ -1,3 +1,4 @@
+import { CloseIcon } from '@/components/icons/icons';
 import { pointAt, type TRankPoint } from '@/lib/bump';
 import { dayFormat, fullFormat, ordinal } from '@/lib/format';
 import { pageUrl } from '@/lib/url';
@@ -6,6 +7,7 @@ import type { TRatingRow } from '@/types/games.types';
 import {
   Fragment,
   useCallback,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -22,6 +24,7 @@ type Props = {
   metric: TChartMetric;
   palette: Map<string, string>;
   versionOf: (team: string, build?: string) => string;
+  loading?: boolean;
 };
 
 type THover = { col: number | null; team: string | null };
@@ -29,7 +32,8 @@ type TPointerPosition = { clientX: number; clientY: number };
 
 const muted = 'var(--color-text-muted)';
 
-const BumpChart: FC<Props> = ({ columns, series, selected, metric, palette, versionOf }) => {
+const BumpChart: FC<Props> = ({ columns, series, selected, metric, palette, versionOf, loading = false }) => {
+  const figure = useRef<HTMLElement>(null);
   const plot = useRef<HTMLDivElement>(null);
   const tip = useRef<HTMLDivElement>(null);
   const pointerFrame = useRef<number | null>(null);
@@ -51,6 +55,7 @@ const BumpChart: FC<Props> = ({ columns, series, selected, metric, palette, vers
     () => chartGeometry(columns.length, series, selected, metric, size),
     [columns.length, series, selected, metric, size]
   );
+
   const lines = useMemo(() => {
     if (!geom) return [];
     const cached = new Set(
@@ -106,6 +111,19 @@ const BumpChart: FC<Props> = ({ columns, series, selected, metric, palette, vers
     cancelPointer();
     setHover((h) => h.col === null ? h : { ...h, col: null });
   };
+
+  const toolTipOpenned = hover.col !== null;
+
+  useEffect(() => {
+    if (!toolTipOpenned) return;
+    const handlePointerDown = (e: PointerEvent) => {
+      if (figure.current?.contains(e.target as Node)) return;
+      cancelPointer();
+      setHover((h) => ({ ...h, col: null }));
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [toolTipOpenned, cancelPointer]);
 
   const pointed = (e: TPointerPosition) => {
     const box = plot.current!.getBoundingClientRect();
@@ -174,7 +192,9 @@ const BumpChart: FC<Props> = ({ columns, series, selected, metric, palette, vers
   });
 
   let summary: string;
-  if (!geom) {
+  if (loading) {
+    summary = 'Chargement du graphe…';
+  } else if (!geom) {
     summary = !selected.length ? 'Aucune équipe choisie.' : 'Aucune partie de ces équipes dans cette fenêtre.';
   } else {
     const from = dayFormat.format(new Date(columns[0].ts));
@@ -195,6 +215,7 @@ const BumpChart: FC<Props> = ({ columns, series, selected, metric, palette, vers
 
   return (
     <figure
+      ref={figure}
       className="bump-figure"
       onPointerLeave={(e) => {
         if (!e.currentTarget.contains(document.activeElement)) hide();
@@ -229,7 +250,7 @@ const BumpChart: FC<Props> = ({ columns, series, selected, metric, palette, vers
           });
         }}
         onPointerDown={(e) => {
-          if (!geom || !e.isPrimary || e.button !== 0) return;
+          if (!geom || !e.isPrimary || e.button !== 0 || (e.target as Element).closest('.tip-dismiss')) return;
           cancelPointer();
           e.currentTarget.focus({ preventScroll: true });
           e.currentTarget.setPointerCapture(e.pointerId);
@@ -335,6 +356,11 @@ const BumpChart: FC<Props> = ({ columns, series, selected, metric, palette, vers
             </>
           )}
         </svg>
+        {loading && (
+          <div className="bump-loading" aria-hidden="true">
+            <span className="spinner" />
+          </div>
+        )}
         <div
           id="bump-cursor"
           className="bump-cursor"
@@ -367,15 +393,17 @@ const BumpChart: FC<Props> = ({ columns, series, selected, metric, palette, vers
               </ol>
             </>
           )}
+          <button type="button" className="tip-dismiss" tabIndex={-1} aria-label="Fermer" onClick={hide}>
+            <CloseIcon />
+          </button>
         </div>
       </div>
       <figcaption id="bump-summary" className="bump-summary">
         {summary}
-        {game && (
-          <a className="graph-link bump-replay" href={gameUrl(game.id)}>
-            Rejouer la partie sélectionnée
-          </a>
-        )}
+        {/* Toujours rendu pour éviter de faire sauter l'interface. */}
+        <a className={cn('graph-link bump-replay', !game && 'idle')} href={game ? gameUrl(game.id) : undefined}>
+          Rejouer la partie sélectionnée
+        </a>
       </figcaption>
     </figure>
   );

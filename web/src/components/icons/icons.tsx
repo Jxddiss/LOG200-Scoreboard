@@ -13,6 +13,7 @@ const icon = (d: string, viewBox = '0 0 24 24') => {
 };
 
 export const CloseIcon = icon('M6 6l12 12M18 6L6 18');
+export const MenuIcon = icon('M4 7h16M4 12h16M4 17h16');
 export const ChevronDownIcon = icon('M6 9l6 6 6-6');
 export const FirstIcon = icon('M6 5v14M19 5l-9 7 9 7z');
 export const PrevIcon = icon('M16 5l-9 7 9 7z');

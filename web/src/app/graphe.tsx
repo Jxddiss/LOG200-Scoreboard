@@ -85,14 +85,13 @@ const GraphePage = () => {
 
   return (
     <>
-      <Masthead current="graphe">
+      <Masthead current="graphe" status={<LiveStatus dot={failure ? 'error' : summary && timeline ? 'on' : ''} text={status} pulses={pulses} />}>
         <VerifiedFilter
           hidden={!summary?.verified}
           checked={verifiedParam === '1'}
           onChange={(checked) => setVerifiedParam(checked ? '1' : null)}
         />
         <SessionSelect value={session} options={sessionOptions(summary?.sessions)} onChange={setSessionChoice} />
-        <LiveStatus dot={failure ? 'error' : summary && timeline ? 'on' : ''} text={status} pulses={pulses} />
       </Masthead>
 
       <main className="layout graph-layout">
@@ -130,7 +129,15 @@ const GraphePage = () => {
               Top 10
             </button>
           </div>
-          <BumpChart columns={columns} series={series} selected={selected} metric={metric} palette={palette} versionOf={version} />
+          <BumpChart
+            columns={columns}
+            series={series}
+            selected={selected}
+            metric={metric}
+            palette={palette}
+            versionOf={version}
+            loading={!failure && !(summary && timeline)}
+          />
         </section>
       </main>
     </>

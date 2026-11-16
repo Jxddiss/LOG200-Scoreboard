@@ -20,11 +20,18 @@
     --content-inset-end: calc(max(var(--gutter), env(safe-area-inset-right), (100% - var(--page-max-width)) / 2 + var(--gutter)) + var(--section-padding));
     --page-max-width: 1680px;
 
-    /* État du direct, flottant en bas à gauche. */
+    /* État du direct, flottant en bas à droite. */
     --status-offset: calc(var(--space-4) + env(safe-area-inset-bottom));
     --status-height: var(--space-8);
     --status-overlap: var(--space-4);
     --status-clearance: calc(var(--status-offset) + var(--status-height) - var(--status-overlap));
+
+    /* Page Classement, plein écran. */
+    --ranking-column-width: 44.5rem;
+    --ranking-visible-rows: 8;
+    --team-column-width: 14rem;
+    --games-min-height: min(14.5rem, 40%);
+    --tooltip-max-width: 18rem;
 
     /* Tailles */
     --control-sm: 1.75rem;
@@ -76,6 +83,8 @@
     --letter-spacing-snug: -0.01em;
     --letter-spacing-wide: 0.04em;
     --letter-spacing-caps: 0.08em;
+    --letter-spacing-display: -0.02em;
+    --word-spacing-display: 0.05em;
 
     /* Rayons. Imbriqué : rayon du parent moins l'écart, jamais négatif. */
     --radius-xs: 2px;
@@ -222,6 +231,12 @@
     color-scheme: light dark;
 }
 
+@media (min-height: 1100px) {
+    :root {
+        --ranking-visible-rows: 11;
+    }
+}
+
 @media (prefers-color-scheme: dark) {
     :root {
         --color-bg: var(--neutral-900);
@@ -282,7 +297,6 @@
 :root {
     --color-accent-subtle: color-mix(in srgb, var(--color-accent) 10%, var(--color-surface));
     --color-accent-soft: color-mix(in srgb, var(--color-accent) 16%, var(--color-surface));
-    --color-accent-strong: color-mix(in srgb, var(--color-accent) 24%, var(--color-surface));
     --color-accent-border: color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
     --color-pawn-red-light: color-mix(in srgb, var(--color-pawn-red) 90%, white);
     --color-pawn-red-dark: color-mix(in srgb, var(--color-pawn-red) 60%, black);
@@ -294,4 +308,5 @@
     --color-play-bottom: color-mix(in srgb, var(--color-text) 76%, var(--color-surface));
     --color-range-fill: color-mix(in srgb, var(--color-accent-fill) 85%, var(--neutral-400));
     --color-overlay: color-mix(in srgb, var(--color-bg) 72%, transparent);
+    --color-grip: color-mix(in srgb, var(--color-accent-fill) 60%, var(--color-border-strong));
 }

@@ -16,9 +16,12 @@ const useScrollEdges = (ref: RefObject<HTMLElement | null>) => {
   useLayoutEffect(measure);
 
   useLayoutEffect(() => {
-    addEventListener('resize', measure);
-    return () => removeEventListener('resize', measure);
-  }, [measure]);
+    const node = ref.current;
+    if (!node) return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [ref, measure]);
 
   return { edges, onScroll: measure };
 };
