@@ -137,15 +137,17 @@ jobs:
             verdict=$(head -n 1 response.txt)
             # Le smoke test prend quelques minutes ; le ladder garde le verdict une heure.
             end=$((SECONDS + 1200))
-            warned=false
+            blocked=0
             while :; do
               sleep 5
               request 30 -H "$auth" "$url$verdict"
               if [ "$from" = ladder ]; then
                 [ "$http" = 202 ] || break
+                blocked=0
               elif [ "$from" = proxy ]; then
-                $warned || echo "::warning::Verdict intercepte par un proxy (HTTP $http) : nouvel essai toutes les 30 s."
-                warned=true
+                # Un blocage qui dure (pare-feu du proxy contre les IP des runners) ne se levera pas en attendant.
+                blocked=$((blocked + 1))
+                ((blocked < 4)) || unknown "Verdict intercepte par un proxy (HTTP $http, 4 essais de suite)."
                 sleep 25
               fi
               ((SECONDS < end)) || unknown "Pas de verdict du ladder apres 20 min (derniere reponse : HTTP $http)."
@@ -167,9 +169,19 @@ jobs:
         run: |
           hash=$(sha256sum client.jar | cut -c1-16)
           n=
+          # Le build n'apparait qu'apres un moment : reessayer. Une reponse d'un proxy, elle, ne changera pas.
           for _ in $(seq 20); do
-            n=$(curl -sSf --max-time 30 "${LADDER_URL%/}/data/summary.json" | jq -r --arg h "$hash" \
-              '[.builds[] | index($h) | select(. != null)] | first // empty | . + 1') || true
+            out=$(curl -sS --max-time 30 -o summary.json -w '%{http_code} %{content_type}' \
+              "${LADDER_URL%/}/data/summary.json") || out=000
+            case "$out" in
+              "200 application/json"*)
+                n=$(jq -r --arg h "$hash" \
+                  '[.builds[] | index($h) | select(. != null)] | first // empty | . + 1' summary.json) || true ;;
+              000*) ;;
+              *)
+                echo "::warning::summary.json intercepte (HTTP ${out%% *}) : pas de tag."
+                exit 0 ;;
+            esac
             [ -n "$n" ] && break
             sleep 30
           done
