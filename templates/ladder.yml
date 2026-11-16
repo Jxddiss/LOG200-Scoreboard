@@ -94,35 +94,69 @@ jobs:
             echo "::error::Secret LADDER_TOKEN absent (Settings > Secrets and variables > Actions)."
             exit 1
           fi
-          # Le smoke test joue deux parties et attend la fin de la partie en cours : compter quelques minutes.
+          url=${LADDER_URL%/}
+          auth="Authorization: Bearer $LADDER_TOKEN"
+          hash=$(sha256sum client.jar | cut -c1-16)
+          # Le ladder repond en texte brut, avec ces codes seulement. Une page HTML ou un autre code (403, 52x)
+          # vient d'un proxy comme Cloudflare : ce n'est pas un verdict, le run avertit sans echouer.
+          request() {
+            local out
+            rm -f response.txt
+            out=$(curl -sS --max-time "$1" -o response.txt -w '%{http_code} %{content_type}' "${@:2}") || true
+            http=${out%% *}
+            http=${http:-000}
+            from=proxy
+            [ "$http" = 000 ] && from=none
+            case "$http" in 200|202|400|401|404|413|422|429|500|503) [[ $out == *html* ]] || from=ladder ;; esac
+          }
+          report() {
+            {
+              echo "### Ladder : $1"
+              echo
+              echo '````text'
+              echo "$2"
+              echo '````'
+              echo
+              echo "Classement : $url/"
+            } >> "$GITHUB_STEP_SUMMARY"
+          }
+          unknown() {
+            echo "::warning::$1"
+            report "verdict inconnu" "$1
+          Verdict du build $hash : $url/api/stats/submissions?team=<equipe>"
+            exit 0
+          }
+
           # ?async : le ladder repond 202 et le chemin du verdict, interroge ensuite (un proxy comme
           # Cloudflare coupe une requete sans reponse au bout de 100 s). Un ladder plus ancien repond 200.
-          auth="Authorization: Bearer $LADDER_TOKEN"
-          code=$(curl -sS --max-time 300 -o response.txt -w '%{http_code}' -X PUT \
-            -H "$auth" --data-binary @client.jar "${LADDER_URL%/}/api/submit?async") || code=000
-          if [ "$code" = 202 ]; then
+          request 300 -X PUT -H "$auth" --data-binary @client.jar "$url/api/submit?async"
+          if [ "$from" = proxy ]; then
+            unknown "Envoi intercepte par un proxy (HTTP $http) : le jar n'a peut-etre pas ete recu. Relancer le workflow dans quelques minutes ; si ca se repete, verifier aussi LADDER_TOKEN."
+          fi
+          if [ "$http" = 202 ]; then
             verdict=$(head -n 1 response.txt)
-            for _ in $(seq 180); do
+            # Le smoke test prend quelques minutes ; le ladder garde le verdict une heure.
+            end=$((SECONDS + 1200))
+            warned=false
+            while :; do
               sleep 5
-              code=$(curl -sS --max-time 30 -o response.txt -w '%{http_code}' -H "$auth" \
-                "${LADDER_URL%/}$verdict") || code=000
-              [ "$code" = 202 ] || [ "$code" = 000 ] || break
+              request 30 -H "$auth" "$url$verdict"
+              if [ "$from" = ladder ]; then
+                [ "$http" = 202 ] || break
+              elif [ "$from" = proxy ]; then
+                $warned || echo "::warning::Verdict intercepte par un proxy (HTTP $http) : nouvel essai toutes les 30 s."
+                warned=true
+                sleep 25
+              fi
+              ((SECONDS < end)) || unknown "Pas de verdict du ladder apres 20 min (derniere reponse : HTTP $http)."
             done
           fi
-          body=$(cat response.txt 2>/dev/null)
-          echo "HTTP $code : $body"
-          {
-            echo "### Ladder : HTTP $code"
-            echo
-            echo '````text'
-            echo "$body"
-            echo '````'
-            echo
-            echo "Classement : ${LADDER_URL%/}/"
-          } >> "$GITHUB_STEP_SUMMARY"
-          if [ "$code" != 200 ]; then
+          body=$(cat response.txt 2>/dev/null || true)
+          echo "HTTP $http : $body"
+          report "HTTP $http" "$body"
+          if [ "$http" != 200 ]; then
             reason=${body%%$'\n'*}
-            echo "::error::${reason:-ladder injoignable a $LADDER_URL}"
+            echo "::error::${reason:-ladder injoignable a $url}"
             exit 1
           fi
 
